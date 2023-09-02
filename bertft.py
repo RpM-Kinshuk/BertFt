@@ -220,14 +220,6 @@ class BERTFT(BertPreTrainedModel):  # Done
         )
 
 
-config = BERTFT.from_pretrained(  # WORK IN PROGRESS
-    args.model_name,
-    num_labels=num_labels,
-    finetuning_task=args.task_name,
-    cache_dir=args.savepath,
-)
-
-
 def getCustomParams(model):  # Done
     new_params = []
     pre_trained = []
@@ -255,7 +247,7 @@ def getOptim(model, vary_lyre, factor=1):  # Done
         )
 
 
-def get_model(args, device):  # Done
+def get_model(args, device, config):  # Done
     model = BERTFT.from_pretrained(
         args.model_name,
         # num_labels=num_labels,
@@ -311,7 +303,6 @@ def calc_train_loss(args, model,  # Done
                     train_dataloader, eval_dataloader
 ):
     num_all_pts = 0
-
     train_losses = []
     val_losses = []
     val_accs = []
@@ -327,8 +318,12 @@ def calc_train_loss(args, model,  # Done
     model, optimizer, train_dataloader, eval_dataloader = accelerator.prepare(
         model, optimizer, train_dataloader, eval_dataloader
     )
+    
     num_steps = args.epochs * len(train_dataloader)
-    progress_bar = tqdm(range(num_steps))
+    
+    progress_bar = tqdm(range(num_steps),
+                        #disable=not accelerator.is_local_main_process
+                    )
 
     model.train()
 
@@ -420,65 +415,50 @@ def calc_train_loss(args, model,  # Done
     return train_losses, val_losses, val_accs
 
 
-
-
-
-if args.task_name is not None:
-    raw_datasets = load_dataset("glue", args.task_name)
-    is_regression = args.task_name == "stsb"
-    if is_regression:
-        num_labels = 1
-    else:
-        label_list = raw_datasets["train"].features["label"].names  # type: ignore
-        num_labels = len(label_list)
-else:
-    raw_datasets = load_dataset("glue", "all")
-    is_regression = raw_datasets["train"].features["label"].dtype in ["float32", "float64"]  # type: ignore
-    if is_regression:
-        num_labels = 1
-    else:
-        label_list = raw_datasets["train"].unique("label")  # type: ignore
-        label_list.sort()
-        num_labels = len(label_list)
-
-
-
-
-
-
-model = get_model(args, accelerator.device)
-optimizer = getOptim(model, True, 1)
-tokenizer = AutoTokenizer.from_pretrained(
-    args.model_name,
-    use_fast=not args.slow_tokenizer,
-)
-
-no_decay = ["bias", "LayerNorm.weight"]
-
-
-def get_model_params(model):  # WORK IN PROGRESS
+def get_model_params(model):  # Done
     params = {}
     for name in model.state_dict():
         params[name] = copy.deepcopy(model.state_dict()[name])
     return params
 
+def get_train_eval(args):  # WORK IN PROGRESS
 
-lr_scheduler = get_scheduler(  # WORK IN PROGRESS
-    name=SchedulerType.LINEAR,
-    optimizer=optimizer,
-    num_warmup_steps=args.warmup_steps,
-    num_training_steps=args.max_train_steps,
-)
+    if args.task_name is not None:
+        raw_datasets = load_dataset("glue", args.task_name)
+        is_regression = args.task_name == "stsb"
+        if is_regression:
+            num_labels = 1
+        else:
+            label_list = raw_datasets["train"].features["label"].names  # type: ignore
+            num_labels = len(label_list)
+    else:
+        raw_datasets = load_dataset("glue", "all")
+        is_regression = raw_datasets["train"].features["label"].dtype in ["float32", "float64"]  # type: ignore
+        if is_regression:
+            num_labels = 1
+        else:
+            label_list = raw_datasets["train"].unique("label")  # type: ignore
+            label_list.sort()
+            num_labels = len(label_list)
 
-if args.task_name is not None:
-    sentence1_key, sentence2_key = task_to_keys[args.task_name]
-else:
-    sentence1_key, sentence2_key = "sentence1", "sentence2"
 
-padding = "max_length" if args.pad_to_max_length else False
+    tokenizer = BertTokenizer.from_pretrained(
+        args.model_name,
+        do_lower_case=True,
+        use_fast=not args.slow_tokenizer,
+    )
+
+    no_decay = ["bias", "LayerNorm.weight"]
 
 
-def get_train_eval():  # WORK IN PROGRESS
+    if args.task_name is not None:
+        sentence1_key, sentence2_key = task_to_keys[args.task_name]
+    else:
+        sentence1_key, sentence2_key = "sentence1", "sentence2"
+
+    padding = "max_length" if args.pad_to_max_length else False
+
+
     def preprocess(examples):
         texts = (
             (examples[sentence1_key],)
@@ -525,7 +505,7 @@ def get_train_eval():  # WORK IN PROGRESS
     return train_dataloader, eval_dataloader
 
 
-train_dataloader, eval_dataloader = get_train_eval()
+train_dataloader, eval_dataloader = get_train_eval(args)
 
 overrode_max_train_steps = False
 num_steps_per_epoch = math.ceil(
@@ -553,7 +533,6 @@ progress_bar = tqdm(
 
 
 # def evaluate(model, eval_dataloader):
-
 #     all_acc=[]
 #     all_loss=[]
 #     ##### evaluate #####
