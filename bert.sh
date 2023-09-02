@@ -8,7 +8,7 @@ do
         python bertft.py \
             --savepath /models \
             --epochs 20 \
-            --model_name roberta-large \
+            --model_name bert-base-uncased \
             --task_name $task \
             --max_length 512 \
             --batch_size 32 \
@@ -20,5 +20,7 @@ do
             --slow_tokenizer True \
             --pad_to_max_length False \
             --max_train_steps 1000 \
+            --grad_acc_steps 1 \
+            --accelerate True \
     done
 done
