@@ -423,26 +423,25 @@ def get_model_params(model):  # Done
 
 def get_train_eval(args):  # WORK IN PROGRESS
 
+    num_labels = 1
+    
+    # Load Raw Data and find num_labels
     if args.task_name is not None:
         raw_datasets = load_dataset("glue", args.task_name)
         is_regression = args.task_name == "stsb"
-        if is_regression:
-            num_labels = 1
-        else:
+        if not is_regression:
             label_list = raw_datasets["train"].features["label"].names  # type: ignore
             num_labels = len(label_list)
     else:
         raw_datasets = load_dataset("glue", "all")
         is_regression = raw_datasets["train"].features["label"].dtype in ["float32", "float64"]  # type: ignore
-        if is_regression:
-            num_labels = 1
-        else:
+        if not is_regression:
             label_list = raw_datasets["train"].unique("label")  # type: ignore
             label_list.sort()
             num_labels = len(label_list)
 
-
-    tokenizer = BertTokenizer.from_pretrained(
+    # Load Tokenizer
+    tokenizer = BertTokenizer.from_pretrained( # Done
         args.model_name,
         do_lower_case=True,
         use_fast=not args.slow_tokenizer,
@@ -450,25 +449,28 @@ def get_train_eval(args):  # WORK IN PROGRESS
 
     no_decay = ["bias", "LayerNorm.weight"]
 
-
+    # Define keys for both inputs
     if args.task_name is not None:
         sentence1_key, sentence2_key = task_to_keys[args.task_name]
     else:
         sentence1_key, sentence2_key = "sentence1", "sentence2"
 
+    # Set target padding
     padding = "max_length" if args.pad_to_max_length else False
 
-
-    def preprocess(examples):
+    # Preprocess Data
+    def preprocess(input):
         texts = (
-            (examples[sentence1_key],)
+            (input[sentence1_key],)
             if sentence2_key is None
-            else (examples[sentence1_key], examples[sentence2_key])
+            else 
+            (input[sentence1_key], input[sentence2_key])
         )
         result = tokenizer(
-            *texts, padding=padding, max_length=args.max_length, truncation=True
+            *texts, padding=padding,
+            max_length=args.max_length,
+            truncation=True
         )
-
         return result
 
     processed_datasets = raw_datasets.map(
