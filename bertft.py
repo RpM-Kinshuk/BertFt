@@ -105,6 +105,7 @@ parser.add_argument("--accelerate", type=bool, default=True, help="")
 
 args = parser.parse_args()
 
+# Control randomness
 print("SEED:", args.seed)
 random.seed(args.seed)
 np.random.seed(args.seed)
