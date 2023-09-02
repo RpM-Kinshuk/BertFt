@@ -20,7 +20,7 @@ do
             --alpha_ascending False \
             --slow_tokenizer True \
             --pad_to_max_length False \
-            --max_train_steps 1000
+            --max_train_steps 1000 \
     done
 done
 """
@@ -114,25 +114,6 @@ accelerate.utils.set_seed(args.seed)
 set_seed(args.seed)  # transformers
 
 accelerator = Accelerator()
-
-
-if args.task_name is not None:
-    raw_datasets = load_dataset("glue", args.task_name)
-    is_regression = args.task_name == "stsb"
-    if is_regression:
-        num_labels = 1
-    else:
-        label_list = raw_datasets["train"].features["label"].names  # type: ignore
-        num_labels = len(label_list)
-else:
-    raw_datasets = load_dataset("glue", "all")
-    is_regression = raw_datasets["train"].features["label"].dtype in ["float32", "float64"]  # type: ignore
-    if is_regression:
-        num_labels = 1
-    else:
-        label_list = raw_datasets["train"].unique("label")  # type: ignore
-        label_list.sort()
-        num_labels = len(label_list)
 
 
 class BERTFT(BertPreTrainedModel):  # Done
@@ -239,7 +220,7 @@ class BERTFT(BertPreTrainedModel):  # Done
         )
 
 
-config = BERTFT.from_pretrained(
+config = BERTFT.from_pretrained(  # WORK IN PROGRESS
     args.model_name,
     num_labels=num_labels,
     finetuning_task=args.task_name,
@@ -274,7 +255,7 @@ def getOptim(model, vary_lyre, factor=1):  # Done
         )
 
 
-def get_model(args, device): # Done
+def get_model(args, device):  # Done
     model = BERTFT.from_pretrained(
         args.model_name,
         # num_labels=num_labels,
@@ -297,32 +278,172 @@ def get_model(args, device): # Done
     return model
 
 
-def val_loss(model, eval_dataloader, device): # Done
+def calc_val_loss(model, eval_dataloader, device):  # Done
     loss = 0
     val_examples = 0
     correct = 0
     model.eval()
     for step, batch in enumerate(eval_dataloader):
         batch = tuple(t.to(device) for t in batch)
-        '''
+        """
         Assuming batch = (input_ids, attention_mask, labels)
-        '''
+        """
         input_len = len(batch[2])
         with torch.no_grad():
             outputs = model(
                 **batch,
                 token_type_ids=None,
                 attention_mask=batch[1].to(device),
-                labels=batch[2].to(device)
+                labels=batch[2].to(device),
             )
             logits = outputs.logits
             _, predict = torch.max(logits, dim=1)
-            
-            correct += sum(predict == batch[2]).item() # type: ignore
-        
+
+            correct += sum(predict == batch[2]).item()  # type: ignore
+
         loss += outputs.loss.item() * input_len
         val_examples += input_len
-    return loss/val_examples, correct/val_examples
+    return loss / val_examples, correct / val_examples
+
+
+def calc_train_loss(args, model,  # Done
+                    optimizer, device, 
+                    train_dataloader, eval_dataloader
+):
+    num_all_pts = 0
+
+    train_losses = []
+    val_losses = []
+    val_accs = []
+
+    stats_path = os.path.join(args.savepath, "stats")
+    Path(stats_path).mkdir(parents=True, exist_ok=True)
+
+    accelerator = Accelerator()
+
+    start_time = time.time()
+
+    # Accelerator
+    model, optimizer, train_dataloader, eval_dataloader = accelerator.prepare(
+        model, optimizer, train_dataloader, eval_dataloader
+    )
+    num_steps = args.epochs * len(train_dataloader)
+    progress_bar = tqdm(range(num_steps))
+
+    model.train()
+
+    for epoch in range(args.epochs):
+        train_loss = 0
+        val_loss = 0
+        tr_examples, tr_steps = 0, 0
+        val_examples, val_steps = 0, 0
+
+        watcher = ww.WeightWatcher(model=model)
+        ww_details = watcher.analyze(min_evals=0)
+        ww_details.to_csv(os.path.join(stats_path, f"epoch_{epoch}.csv"))
+
+        print(f"=======>Epoch {epoch+1}/{args.epochs}")
+
+        if epoch == 0:  # Done
+            # CHOOSING LAYERS TO TRAIN
+            filtered = ww_details[
+                ww_details["longname"].str.contains("nw_layer|classifier")
+            ]
+            train_names = (
+                filtered.sort_values(by=["alpha"], ascending=args.alpha_ascending)[
+                    "longname"
+                ]
+                .iloc[: args.num_layers]
+                .to_list()
+            )
+            print("Training layers:", train_names)
+            layer_to_train = []
+            for layer in train_names:
+                layer_to_train.append(layer + ".weight")
+                layer_to_train.append(layer + ".bias")
+                if args.add_layer_norm:
+                    if "output" in layer:
+                        layer_to_train.append(
+                            layer.replace("dense", "LayerNorm") + ".weight"
+                        )
+                        layer_to_train.append(
+                            layer.replace("dense", "LayerNorm") + ".bias"
+                        )
+            layer_to_train = list(set(layer_to_train))
+            print("Training layers:", layer_to_train)
+            for name, param in model.named_parameters():
+                if name in layer_to_train:
+                    print(f"Enabling {name} parameter")
+                    param.requires_grad = True
+                else:
+                    param.requires_grad = False
+
+        for step, batch in enumerate(train_dataloader):
+            optimizer.zero_grad()
+            # batch = tuple(k.to(device) for k in batch)
+            outputs = model(
+                **batch,
+                # token_type_ids=None,
+                # attention_mask=batch[1].to(device),
+                # labels=batch[2].to(device),
+            )
+            # output.loss.backward()
+            accelerator.backward(outputs.loss)
+            optimizer.step()
+            progress_bar.update(1)
+            train_loss += outputs.loss.item()
+            tr_examples += len(batch[0])
+            num_all_pts += len(batch[0])
+            tr_steps += 1
+            train_losses.append(train_loss / tr_steps)
+
+            if step == 0:
+                freeze_dict = defaultdict(list)
+                for name, param in model.named_parameters():
+                    freeze_dict["name"].append(name)
+                    if param.grad is None:
+                        freeze_dict["freeze_layer"].append(True)
+                    elif torch.sum(param.grad.abs()).item() > 0:
+                        freeze_dict["freeze_layer"].append(False)
+                pd.DataFrame(freeze_dict).to_csv(
+                    os.path.join(stats_path, f"freeze_{epoch}.csv")
+                )
+            time_elapsed = (time.time() - start_time) / 60
+
+            val_loss, val_acc = calc_val_loss(model, eval_dataloader, device)
+            print(
+                f"Epoch: {epoch+1}/{args.epochs} | Time Elapsed: {time_elapsed:.2f} mins | Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.4f}"
+            )
+            val_losses.append(val_loss)
+            val_accs.append(val_acc)
+
+    return train_losses, val_losses, val_accs
+
+
+
+
+
+if args.task_name is not None:
+    raw_datasets = load_dataset("glue", args.task_name)
+    is_regression = args.task_name == "stsb"
+    if is_regression:
+        num_labels = 1
+    else:
+        label_list = raw_datasets["train"].features["label"].names  # type: ignore
+        num_labels = len(label_list)
+else:
+    raw_datasets = load_dataset("glue", "all")
+    is_regression = raw_datasets["train"].features["label"].dtype in ["float32", "float64"]  # type: ignore
+    if is_regression:
+        num_labels = 1
+    else:
+        label_list = raw_datasets["train"].unique("label")  # type: ignore
+        label_list.sort()
+        num_labels = len(label_list)
+
+
+
+
 
 
 model = get_model(args, accelerator.device)
@@ -335,20 +456,19 @@ tokenizer = AutoTokenizer.from_pretrained(
 no_decay = ["bias", "LayerNorm.weight"]
 
 
-def get_model_params(model):
+def get_model_params(model):  # WORK IN PROGRESS
     params = {}
     for name in model.state_dict():
         params[name] = copy.deepcopy(model.state_dict()[name])
     return params
 
 
-lr_scheduler = get_scheduler(
+lr_scheduler = get_scheduler(  # WORK IN PROGRESS
     name=SchedulerType.LINEAR,
     optimizer=optimizer,
     num_warmup_steps=args.warmup_steps,
     num_training_steps=args.max_train_steps,
 )
-
 
 if args.task_name is not None:
     sentence1_key, sentence2_key = task_to_keys[args.task_name]
@@ -358,7 +478,7 @@ else:
 padding = "max_length" if args.pad_to_max_length else False
 
 
-def get_train_eval():
+def get_train_eval():  # WORK IN PROGRESS
     def preprocess(examples):
         texts = (
             (examples[sentence1_key],)
