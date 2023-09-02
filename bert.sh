@@ -9,7 +9,7 @@ do
             --savepath /models \
             --epochs 20 \
             --model_name roberta-large \
-            --task_name task \
+            --task_name $task \
             --max_length 512 \
             --batch_size 32 \
             --learning_rate 2e-5 \
@@ -17,5 +17,8 @@ do
             --freeze_bert True \
             --num_layers $layers \
             --alpha_ascending False \
+            --slow_tokenizer True \
+            --pad_to_max_length False \
+            --max_train_steps 1000 \
     done
 done
