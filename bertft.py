@@ -9,7 +9,7 @@ do
         python bertft.py \
             --savepath /models \
             --epochs 20 \
-            --model_name roberta-large \
+            --model_name bert-base-uncased \
             --task_name $task \
             --max_length 512 \
             --batch_size 32 \
@@ -21,6 +21,8 @@ do
             --slow_tokenizer True \
             --pad_to_max_length False \
             --max_train_steps 1000 \
+            --grad_acc_steps 1 \
+            --accelerate True \
     done
 done
 """
@@ -30,7 +32,7 @@ import random
 import numpy as np
 import torch
 import torch.backends.cudnn
-from sklearn.model_selection import train_test_split
+import torch.backends.mps
 
 import torch.nn as nn
 from torch.nn import BCEWithLogitsLoss, CrossEntropyLoss, MSELoss
@@ -40,18 +42,16 @@ import pandas as pd
 import weightwatcher as ww
 import time
 import os
-import math
-import logging
+# import logging
 from pathlib import Path
-import matplotlib.pyplot as plt
 from collections import defaultdict
 from typing import Optional, Tuple, Union
 
 # others
-import datasets
-import evaluate
+# import datasets
+# import evaluate
+# from accelerate.logging import get_logger
 from accelerate import Accelerator
-from accelerate.logging import get_logger
 import accelerate.utils
 from datasets import load_dataset
 
@@ -95,11 +95,13 @@ parser.add_argument("--batch_size", type=int, default=32, help="")
 parser.add_argument("--learning_rate", type=float, default=2e-5, help="")
 parser.add_argument("--seed", type=int, default=5, help="")
 parser.add_argument("--freeze_bert", type=bool, default=True, help="")
-parser.add_argument("--num_layers", type=int, default=74, help="")
+parser.add_argument("--num_layers", type=int, default=0, help="")
 parser.add_argument("--alpha_ascending", type=bool, default=False, help="")
 parser.add_argument("--slow_tokenizer", type=bool, default=True, help="")
 parser.add_argument("--pad_to_max_length", type=bool, default=False, help="")
 parser.add_argument("--max_train_steps", type=int, default=None, help="")
+parser.add_argument("--grad_acc_steps", type=int, default=1, help="")
+parser.add_argument("--accelerate", type=bool, default=True, help="")
 
 args = parser.parse_args()
 
@@ -247,13 +249,11 @@ def getOptim(model, vary_lyre, factor=1):  # Done
         )
 
 
-def get_model(args, device, config):  # Done
+def get_model(args, num_labels, device):  # Done
     model = BERTFT.from_pretrained(
         args.model_name,
-        # num_labels=num_labels,
-        # finetuning_task=args.task_name,
+        num_labels=num_labels,
         # cache_dir=args.savepath,
-        config=config,
     )
     model.to(device)  # type: ignore
     if args.freeze_bert:
@@ -284,9 +284,9 @@ def calc_val_loss(model, eval_dataloader, device):  # Done
         with torch.no_grad():
             outputs = model(
                 **batch,
-                token_type_ids=None,
-                attention_mask=batch[1].to(device),
-                labels=batch[2].to(device),
+                # token_type_ids=None,
+                # attention_mask=batch[1].to(device),
+                # labels=batch[2].to(device),
             )
             logits = outputs.logits
             _, predict = torch.max(logits, dim=1)
@@ -328,10 +328,10 @@ def calc_train_loss(args, model,  # Done
     model.train()
 
     for epoch in range(args.epochs):
+        model.train()
         train_loss = 0
         val_loss = 0
         tr_examples, tr_steps = 0, 0
-        val_examples, val_steps = 0, 0
 
         watcher = ww.WeightWatcher(model=model)
         ww_details = watcher.analyze(min_evals=0)
@@ -342,7 +342,7 @@ def calc_train_loss(args, model,  # Done
         if epoch == 0:  # Done
             # CHOOSING LAYERS TO TRAIN
             filtered = ww_details[
-                ww_details["longname"].str.contains("nw_layer|classifier")
+                ww_details["longname"].str.contains("new_layer|classifier")
             ]
             train_names = (
                 filtered.sort_values(by=["alpha"], ascending=args.alpha_ascending)[
@@ -375,7 +375,7 @@ def calc_train_loss(args, model,  # Done
 
         for step, batch in enumerate(train_dataloader):
             optimizer.zero_grad()
-            # batch = tuple(k.to(device) for k in batch)
+            batch = tuple(k.to(device) for k in batch)
             outputs = model(
                 **batch,
                 # token_type_ids=None,
@@ -420,6 +420,7 @@ def get_model_params(model):  # Done
     for name in model.state_dict():
         params[name] = copy.deepcopy(model.state_dict()[name])
     return params
+
 
 def get_train_eval(args):  # WORK IN PROGRESS
 
@@ -481,7 +482,9 @@ def get_train_eval(args):  # WORK IN PROGRESS
     )
 
     train_dataset = processed_datasets["train"]  # type: ignore
-    eval_dataset = processed_datasets["validation_matched" if args.task_name == "mnli" else "validation"]  # type: ignore
+    eval_dataset = processed_datasets["validation_matched" # type: ignore
+                                      if args.task_name == "mnli" 
+                                      else "validation"]
 
     for index in random.sample(range(len(train_dataset)), 3):
         print(f"Sample {index} of train set: {train_dataset[index]}")
@@ -489,7 +492,8 @@ def get_train_eval(args):  # WORK IN PROGRESS
     if args.pad_to_max_length:
         data_collator = default_data_collator
     else:
-        data_collator = DataCollatorWithPadding(tokenizer, pad_to_multiple_of=8)
+        data_collator = DataCollatorWithPadding(tokenizer,
+                                                pad_to_multiple_of=8)
 
     train_dataloader = DataLoader(
         train_dataset,  # type: ignore
@@ -504,85 +508,64 @@ def get_train_eval(args):  # WORK IN PROGRESS
         batch_size=args.batch_size,
     )
 
-    return train_dataloader, eval_dataloader
+    return num_labels, train_dataloader, eval_dataloader
 
 
-train_dataloader, eval_dataloader = get_train_eval(args)
+def main():
+    device = None
+    if args.accelerate:
+        device = accelerator.device
+    else:
+        if(torch.cuda.is_available()):
+            device = torch.device('cuda')
+        elif torch.backends.mps.is_available():
+            device = torch.device('mps')
+        else:
+            device = torch.device('cpu')
+    
+    num_labels, train_dataloader, eval_dataloader = get_train_eval(args)
+    print(f'Training data size: {len(train_dataloader)}')
+    print(f'Validation data size: {len(eval_dataloader)}')
+    
+    model = get_model(args = args, num_labels = num_labels, device = device)
+    optimizer = getOptim(model, vary_lyre = True, factor = 1)
+    
+    i_val_loss, i_val_acc = calc_val_loss(model, eval_dataloader, device)
+    print(f'Epoch 0: Val Loss: {i_val_loss:.2f} | Val Acc: {i_val_acc:.2f}')
+    
+    train_loss, val_loss, val_acc = calc_train_loss(args=args, model=model, 
+                                                    optimizer=optimizer, device=device, 
+                                                    train_dataloader=train_dataloader, 
+                                                    eval_dataloader=eval_dataloader)
+    
+    val_loss = [i_val_loss] + val_loss
+    val_acc = [i_val_acc] + val_acc
+    base = {'train_loss_base': train_loss, 
+             'val_loss_base': val_loss, 
+             'val_acc_base':val_acc}
+    # Save model
+    Path(args.savepath).mkdir(parents=True, exist_ok=True)
+    np.save(os.path.join(args.savepath, "baseline.npy"),
+            base) # type: ignore
+    
+if __name__ == "__main__":
+    main()
 
-overrode_max_train_steps = False
-num_steps_per_epoch = math.ceil(
-    len(train_dataloader) / args.gradient_accumulation_steps
-)
-
-if args.max_train_steps is None:
-    args.max_train_steps = args.epochs * num_steps_per_epoch
-    overrode_max_train_steps = True
 
 
-if args.task_name is None:
-    metric = evaluate.load(
-        "glue",
-        args.task_name,
-        experiment_id=str(args.seed) + str(args.num_layers) + str(args.alpha_ascending),
-    )
-else:
-    metric = evaluate.load("accuracy")
 
-# train stuff
-progress_bar = tqdm(
-    range(args.max_train_steps), disable=not accelerator.is_local_main_process
-)
-
-
-# def evaluate(model, eval_dataloader):
-#     all_acc=[]
-#     all_loss=[]
-#     ##### evaluate #####
-#     print ("begin evaluate ======================")
-#     model.eval()
-#     samples_seen = 0
-#     total_loss=0
-#     for step, batch in enumerate(eval_dataloader):
-#         with torch.no_grad():
-#             outputs = model(**batch)
-#             loss = outputs.loss
-#             total_loss += loss.detach().float()
-#         predictions = outputs.logits.argmax(dim=-1) if not is_regression else outputs.logits.squeeze()
-#         predictions, references = accelerator.gather((predictions, batch["labels"]))
-#         # If we are in a multiprocess environment, the last batch has duplicates
-#         if accelerator.num_processes > 1:
-#             if step == len(eval_dataloader) - 1:
-#                 predictions = predictions[: len(eval_dataloader.dataset) - samples_seen]
-#                 references = references[: len(eval_dataloader.dataset) - samples_seen]
-#             else:
-#                 samples_seen += references.shape[0]
-#         metric.add_batch(
-#             predictions=predictions,
-#             references=references,
+# overrode_max_train_steps = False
+#     num_steps_per_epoch = math.ceil(
+#         len(train_dataloader) / args.gradient_acc_steps
+#     )
+#     if args.max_train_steps is None:
+#         args.max_train_steps = args.epochs * num_steps_per_epoch
+#         overrode_max_train_steps = True
+#     if args.task_name is None:
+#         metric = evaluate.load(
+#             "glue",
+#             args.task_name,
+#             experiment_id=str(args.seed) + str(args.num_layers) + str(args.alpha_ascending),
 #         )
-#     eval_metric = metric.compute()
-#     if args.task_name == "mnli":
-#         total_loss=0
-#         # Final evaluation on mismatched validation set
-#         eval_dataset = processed_datasets["validation_mismatched"]
-#         eval_dataloader = DataLoader(
-#             eval_dataset, collate_fn=data_collator, batch_size=args.per_device_eval_batch_size
-#         )
-#         eval_dataloader = accelerator.prepare(eval_dataloader)
-#         model.eval()
-#         for step, batch in enumerate(eval_dataloader):
-#             outputs = model(**batch)
-
-#             loss = outputs.loss
-#             total_loss += loss.detach().float()
-#             predictions = outputs.logits.argmax(dim=-1)
-#             metric.add_batch(
-#                 predictions=accelerator.gather(predictions),
-#                 references=accelerator.gather(batch["labels"]),
-#             )
-#         eval_metric = metric.compute()
-
-#     all_results = {f"eval_{k}": v for k, v in eval_metric.items()}
-#     print    (all_results)
-#     # total_loss.item() / len(eval_dataloader)
-#     print ("loss",total_loss.item() / len(eval_dataloader))
+#     else:
+#         metric = evaluate.load("accuracy")
