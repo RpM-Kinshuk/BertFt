@@ -28,6 +28,7 @@ do
 done
 """
 
+#Imports
 import argparse
 import random
 import numpy as np
@@ -48,7 +49,7 @@ from pathlib import Path
 from collections import defaultdict
 from typing import Optional, Tuple, Union
 
-# others
+# other imports
 # import datasets
 # import evaluate
 # from accelerate.logging import get_logger
@@ -72,7 +73,7 @@ from transformers import (
     get_scheduler,
 )
 
-
+# Keys for GLUE Tasks
 task_to_keys = {  # Done
     "cola": ("sentence", None),
     "mnli": ("premise", "hypothesis"),
@@ -87,6 +88,7 @@ task_to_keys = {  # Done
 
 parser = argparse.ArgumentParser(description="BERT Fine-Tuning")
 
+# Parser Arguments and Defaults
 parser.add_argument("--savepath", type=str, default="/models", help="")
 parser.add_argument("--epochs", type=int, default=20, help="")
 parser.add_argument("--model_name", type=str, default="roberta-large", help="")
@@ -120,12 +122,11 @@ set_seed(args.seed)  # transformers
 
 accelerator = Accelerator()
 
-
+# Model Architecture
 class BERTFT(BertPreTrainedModel):  # Done
     """
     BERT Fine-Tuning on GLUE tasks
     """
-
     def __init__(self, config):
         super().__init__(config)
         self.num_labels = config.num_labels
@@ -163,6 +164,7 @@ class BERTFT(BertPreTrainedModel):  # Done
             return_dict if return_dict is not None else self.config.use_return_dict
         )
 
+        # Feed-forward through BERT
         outputs = self.bert(
             input_ids,
             attention_mask=attention_mask,
@@ -175,8 +177,8 @@ class BERTFT(BertPreTrainedModel):  # Done
             return_dict=return_dict,
         )
 
+        # Feed-forward through new layer and classifier
         pooled_output = outputs[1]
-
         pooled_output = self.dropout(pooled_output)
         intermediate_output = self.new_layer(pooled_output)
         intermediate_output = self.relu(intermediate_output)
@@ -184,6 +186,8 @@ class BERTFT(BertPreTrainedModel):  # Done
         logits = self.classifier(intermediate_output)
 
         loss = None
+        
+        # Calculate loss if labels are provided
         if labels is not None:
             if self.config.problem_type is None:
                 if self.num_labels == 1:
@@ -213,10 +217,12 @@ class BERTFT(BertPreTrainedModel):  # Done
                 loss_fct = BCEWithLogitsLoss()
                 loss = loss_fct(logits, labels)
 
+        # Return loss and logits
         if not return_dict:
             output = (logits,) + outputs[2:]
             return ((loss,) + output) if loss is not None else output
 
+        # Return loss and logits
         return SequenceClassifierOutput(
             loss=loss,
             logits=logits,
@@ -224,7 +230,7 @@ class BERTFT(BertPreTrainedModel):  # Done
             attentions=outputs.attentions,
         )
 
-
+# Custom training for Parameters
 def getCustomParams(model):  # Done
     new_params = []
     pre_trained = []
@@ -235,7 +241,7 @@ def getCustomParams(model):  # Done
             pre_trained.append(val)
     return new_params, pre_trained
 
-
+# Optimizer
 def getOptim(model, vary_lyre, factor=1):  # Done
     if vary_lyre:
         new_params, pre_params = getCustomParams(model)
@@ -251,7 +257,7 @@ def getOptim(model, vary_lyre, factor=1):  # Done
             lr=args.learning_rate,
         )
 
-
+# Model
 def get_model(args, num_labels, device):  # Done
     model = BERTFT.from_pretrained(
         args.model_name,
@@ -259,6 +265,8 @@ def get_model(args, num_labels, device):  # Done
         # cache_dir=args.savepath,
     )
     model.to(device)  # type: ignore
+    
+    # If freeze_bert is true, freeze pre-trained layers
     if args.freeze_bert:
         print("Freezing BERT")
         for name, param in model.named_parameters():  # type: ignore
@@ -266,13 +274,14 @@ def get_model(args, num_labels, device):  # Done
                 param.requires_grad = False
             else:
                 param.requires_grad = True
+    # Else, unfreeze all layers
     else:
         print("Defreezing BERT")
         for param in model.parameters():  # type: ignore
             param.requires_grad = True
     return model
 
-
+# Validation Loss
 def calc_val_loss(model, eval_dataloader, device):  # Done
     loss = 0
     val_examples = 0
@@ -300,7 +309,7 @@ def calc_val_loss(model, eval_dataloader, device):  # Done
         val_examples += input_len
     return loss / val_examples, correct / val_examples
 
-
+# Training Loss
 def calc_train_loss(args, model,  # Done
                     optimizer, device, 
                     train_dataloader, eval_dataloader
@@ -312,8 +321,6 @@ def calc_train_loss(args, model,  # Done
 
     stats_path = os.path.join(args.savepath, "stats")
     Path(stats_path).mkdir(parents=True, exist_ok=True)
-
-    accelerator = Accelerator()
 
     start_time = time.time()
 
