@@ -343,13 +343,14 @@ def calc_train_loss(args, model,  # Done
         val_loss = 0
         tr_examples, tr_steps = 0, 0
 
+        # Save WeightWatcher Metrics
         watcher = ww.WeightWatcher(model=model)
         ww_details = watcher.analyze(min_evals=0)
         ww_details.to_csv(os.path.join(stats_path, f"{args.task_name}/epoch_{epoch}.csv"))
 
         print(f"=======>Epoch {epoch+1}/{args.epochs}")
 
-        if epoch == 0:  # Done
+        if epoch == 0:
             # CHOOSING LAYERS TO TRAIN
             filtered = ww_details[
                 ww_details["longname"].str.contains("new_layer|classifier")
@@ -362,20 +363,26 @@ def calc_train_loss(args, model,  # Done
                 .to_list()
             )
             print("Training layers:", train_names)
+            
             layer_to_train = []
+            
             for layer in train_names:
+                
                 layer_to_train.append(layer + ".weight")
                 layer_to_train.append(layer + ".bias")
+                
+                # Add Layer Norm
                 if args.add_layer_norm:
                     if "output" in layer:
                         layer_to_train.append(
-                            layer.replace("dense", "LayerNorm") + ".weight"
-                        )
+                            layer.replace("dense", "LayerNorm") + ".weight")
                         layer_to_train.append(
-                            layer.replace("dense", "LayerNorm") + ".bias"
-                        )
+                            layer.replace("dense", "LayerNorm") + ".bias")
+            
             layer_to_train = list(set(layer_to_train))
-            print("Training layers:", layer_to_train)
+            
+            print("Final Training layers:", layer_to_train)
+            
             for name, param in model.named_parameters():
                 if name in layer_to_train:
                     print(f"Enabling {name} parameter")
@@ -383,6 +390,7 @@ def calc_train_loss(args, model,  # Done
                 else:
                     param.requires_grad = False
 
+        # Training Loop
         for step, batch in enumerate(train_dataloader):
             optimizer.zero_grad()
             batch = tuple(k.to(device) for k in batch)
@@ -392,8 +400,8 @@ def calc_train_loss(args, model,  # Done
                 # attention_mask=batch[1].to(device),
                 # labels=batch[2].to(device),
             )
-            # output.loss.backward()
             accelerator.backward(outputs.loss)
+            # output.loss.backward()
             optimizer.step()
             progress_bar.update(1)
             train_loss += outputs.loss.item()
@@ -402,6 +410,7 @@ def calc_train_loss(args, model,  # Done
             tr_steps += 1
             train_losses.append(train_loss / tr_steps)
 
+            # Saving Details of Frozen Layers
             if step == 0:
                 freeze_dict = defaultdict(list)
                 for name, param in model.named_parameters():
@@ -411,10 +420,11 @@ def calc_train_loss(args, model,  # Done
                     elif torch.sum(param.grad.abs()).item() > 0:
                         freeze_dict["freeze_layer"].append(False)
                 pd.DataFrame(freeze_dict).to_csv(
-                    os.path.join(stats_path, f"freeze_{epoch}.csv")
+                    os.path.join(stats_path, f"{args.task_name}/freeze_{epoch}.csv")
                 )
             time_elapsed = (time.time() - start_time) / 60
 
+            # Validation Loss
             val_loss, val_acc = calc_val_loss(model, eval_dataloader, device)
             print(
                 f"Epoch: {epoch+1}/{args.epochs} | Time Elapsed: {time_elapsed:.2f} mins | Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.4f}"
@@ -432,7 +442,7 @@ def get_model_params(model):  # Done
     return params
 
 
-def get_train_eval(args):  # WORK IN PROGRESS
+def get_train_eval(args):  # Done
 
     num_labels = 1
     
