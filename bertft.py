@@ -291,11 +291,7 @@ def calc_val_loss(model, eval_dataloader, device):  # Done
     correct = 0
     model.eval()
     for step, batch in enumerate(eval_dataloader):
-        # batch = tuple(t.to(device) for t in batch)
         batch = batch.to(device)
-        """
-        Assuming batch = (input_ids, attention_mask, labels)
-        """
         input_len = len(batch[2])
         with torch.no_grad():
             outputs = model(
@@ -401,7 +397,6 @@ def calc_train_loss(args, model,  # Done
         # Training Loop
         for step, batch in enumerate(train_dataloader):
             optimizer.zero_grad()
-            # batch = tuple(k.to(device) for k in batch)
             batch = batch.to(device)
             outputs = model(
                 **batch,
