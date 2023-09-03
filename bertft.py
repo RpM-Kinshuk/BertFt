@@ -56,6 +56,9 @@ from typing import Optional, Tuple, Union
 from accelerate import Accelerator
 import accelerate.utils
 from datasets import load_dataset
+from sklearn.model_selection import train_test_split
+
+from torch.utils.data import TensorDataset
 
 from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
@@ -288,7 +291,8 @@ def calc_val_loss(model, eval_dataloader, device):  # Done
     correct = 0
     model.eval()
     for step, batch in enumerate(eval_dataloader):
-        batch = tuple(t.to(device) for t in batch)
+        # batch = tuple(t.to(device) for t in batch)
+        batch = batch.to(device)
         """
         Assuming batch = (input_ids, attention_mask, labels)
         """
@@ -296,9 +300,10 @@ def calc_val_loss(model, eval_dataloader, device):  # Done
         with torch.no_grad():
             outputs = model(
                 **batch,
+                # input_ids = batch['input_ids'].to(device),
                 # token_type_ids=None,
-                # attention_mask=batch[1].to(device),
-                # labels=batch[2].to(device),
+                # attention_mask=batch['attention_mask'].to(device),
+                # labels=batch['labels'].to(device),
             )
             logits = outputs.logits
             _, predict = torch.max(logits, dim=1)
@@ -396,12 +401,14 @@ def calc_train_loss(args, model,  # Done
         # Training Loop
         for step, batch in enumerate(train_dataloader):
             optimizer.zero_grad()
-            batch = tuple(k.to(device) for k in batch)
+            # batch = tuple(k.to(device) for k in batch)
+            batch = batch.to(device)
             outputs = model(
                 **batch,
+                # input_ids = batch['input_ids'].to(device),
                 # token_type_ids=None,
-                # attention_mask=batch[1].to(device),
-                # labels=batch[2].to(device),
+                # attention_mask=batch['attention_mask'].to(device),
+                # labels=batch['labels'].to(device),
             )
             accelerator.backward(outputs.loss)
             # output.loss.backward()
@@ -437,14 +444,32 @@ def calc_train_loss(args, model,  # Done
 
     return train_losses, val_losses, val_accs
 
-
+# Copy Model Parameters
 def get_model_params(model):  # Done
     params = {}
     for name in model.state_dict():
         params[name] = copy.deepcopy(model.state_dict()[name])
     return params
 
+# Preprocessing
+def preprocessing(input_text, tokenizer):
+    '''
+    Returns <class transformers.tokenization_utils_base.BatchEncoding> with the following fields:
+    - input_ids: list of token ids
+    - token_type_ids: list of token type ids
+    - attention_mask: list of indices (0,1) specifying which tokens should considered
+    by the model (return_attention_mask = True).
+    '''
+    return tokenizer.encode_plus(
+                        input_text,
+                        add_special_tokens = True,
+                        max_length = 32,
+                        pad_to_max_length = True,
+                        return_attention_mask = True,
+                        return_tensors = 'pt'
+                   )
 
+# Get Train and Eval Dataloaders
 def get_train_eval(args):  # WORK IN PROGRESS
 
     num_labels = 1
