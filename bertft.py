@@ -325,9 +325,12 @@ def calc_train_loss(args, model,  # Done
     start_time = time.time()
 
     # Accelerator
-    model, optimizer, train_dataloader, eval_dataloader = accelerator.prepare(
-        model, optimizer, train_dataloader, eval_dataloader
-    )
+    if args.accelerate:
+        model, optimizer, train_dataloader, eval_dataloader = accelerator.prepare(
+            model, optimizer, train_dataloader, eval_dataloader
+        )
+    else:
+        model.to(device)
     
     num_steps = args.epochs * len(train_dataloader)
     
@@ -442,7 +445,7 @@ def get_model_params(model):  # Done
     return params
 
 
-def get_train_eval(args):  # Done
+def get_train_eval(args):  # WORK IN PROGRESS
 
     num_labels = 1
     
