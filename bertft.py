@@ -20,6 +20,7 @@ do
             --alpha_ascending False \
             --slow_tokenizer True \
             --pad_to_max_length False \
+            --add_layer_norm False \
             --max_train_steps 1000 \
             --grad_acc_steps 1 \
             --accelerate True \
@@ -102,6 +103,7 @@ parser.add_argument("--pad_to_max_length", type=bool, default=False, help="")
 parser.add_argument("--max_train_steps", type=int, default=None, help="")
 parser.add_argument("--grad_acc_steps", type=int, default=1, help="")
 parser.add_argument("--accelerate", type=bool, default=True, help="")
+parser.add_argument("--add_layer_norm", type=bool, default=False, help="")
 
 args = parser.parse_args()
 
@@ -336,7 +338,7 @@ def calc_train_loss(args, model,  # Done
 
         watcher = ww.WeightWatcher(model=model)
         ww_details = watcher.analyze(min_evals=0)
-        ww_details.to_csv(os.path.join(stats_path, f"epoch_{epoch}.csv"))
+        ww_details.to_csv(os.path.join(stats_path, f"{args.task_name}/epoch_{epoch}.csv"))
 
         print(f"=======>Epoch {epoch+1}/{args.epochs}")
 
@@ -448,8 +450,6 @@ def get_train_eval(args):  # WORK IN PROGRESS
         do_lower_case=True,
         use_fast=not args.slow_tokenizer,
     )
-
-    no_decay = ["bias", "LayerNorm.weight"]
 
     # Define keys for both inputs
     if args.task_name is not None:
