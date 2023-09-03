@@ -19,6 +19,7 @@ do
             --alpha_ascending False \
             --slow_tokenizer True \
             --pad_to_max_length False \
+            --add_layer_norm False \
             --max_train_steps 1000 \
             --grad_acc_steps 1 \
             --accelerate True \
