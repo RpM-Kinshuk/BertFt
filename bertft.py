@@ -469,11 +469,12 @@ def preprocessing(input_text, tokenizer):
                         return_tensors = 'pt'
                    )
 
-# Get Train and Eval Dataloaders
-def get_train_eval(args):  # WORK IN PROGRESS
+
+# Get GLUE Train and Eval Dataloaders
+def get_train_eval(args):  # Done
 
     num_labels = 1
-    
+    label_list = []
     # Load Raw Data and find num_labels
     if args.task_name is not None:
         raw_datasets = load_dataset("glue", args.task_name)
@@ -504,7 +505,10 @@ def get_train_eval(args):  # WORK IN PROGRESS
 
     # Set target padding
     padding = "max_length" if args.pad_to_max_length else False
-
+    
+    if args.task_name is None and not is_regression:
+      label_to_id = {v: i for i, v in enumerate(label_list)}
+    
     # Preprocess Data
     def preprocess(input):
         texts = (
@@ -518,14 +522,30 @@ def get_train_eval(args):  # WORK IN PROGRESS
             max_length=args.max_length,
             truncation=True
         )
+        if "label" in input:
+            if label_to_id is not None:
+                # Map labels to IDs (not necessary for GLUE tasks)
+                result["labels"] = [label_to_id[l] for l in input["label"]]
+            else:
+                # In all cases, rename the column to labels because the model will expect that.
+                result["labels"] = input["label"]
         return result
 
-    processed_datasets = raw_datasets.map(
-        preprocess,
-        batched=True,
-        remove_columns=raw_datasets["train"].column_names,  # type: ignore
-        # desc="Running tokenizer on dataset",
-    )
+    if args.accelerate:
+        with accelerator.main_process_first():
+            processed_datasets = raw_datasets.map(
+                preprocess,
+                batched=True,
+                remove_columns=raw_datasets["train"].column_names,  # type: ignore
+                # desc="Running tokenizer on dataset",
+            )
+    else:
+        processed_datasets = raw_datasets.map(
+            preprocess,
+            batched=True,
+            remove_columns=raw_datasets["train"].column_names,  # type: ignore
+            # desc="Running tokenizer on dataset",
+        )
 
     train_dataset = processed_datasets["train"]  # type: ignore
     eval_dataset = processed_datasets["validation_matched" # type: ignore
@@ -556,7 +576,7 @@ def get_train_eval(args):  # WORK IN PROGRESS
 
     return num_labels, train_dataloader, eval_dataloader
 
-
+# Main
 def main():
     # Accelerator
     device = None
@@ -621,3 +641,67 @@ if __name__ == "__main__":
 #         )
 #     else:
 #         metric = evaluate.load("accuracy")
+
+
+# Get Custom Dataloaders | WORK IN PROGRESS
+def get_dataloaders(args, df, val_ratio = 0.2, fract = 0.1):
+    
+    labels = df['label'].values
+    train_ix, val_ix = train_test_split(np.arange(len(labels)), 
+                                        test_size = val_ratio, 
+                                        stratify = labels,
+                                        random_state = args.seed)
+
+    text = df.text.values
+    labels = df.label.values
+    truncate_text = False
+    
+    if truncate_text:
+        text = text[:int(len(text)*fract)]
+        labels = labels[:int(len(labels)*fract)]
+
+    tokenizer = BertTokenizer.from_pretrained( # Done
+        args.model_name,
+        do_lower_case=True,
+        use_fast=not args.slow_tokenizer,
+    )
+    token_ids = []
+    attention_masks = []
+    for sample in text:
+        en_dict = preprocessing(sample, tokenizer)
+        token_ids.append(en_dict['input_ids'])
+        attention_masks.append(en_dict['attention_mask'])
+    
+    token_ids = torch.cat(token_ids, dim = 0)
+    attention_masks = torch.cat(attention_masks, dim = 0)
+    labels = torch.tensor(labels)
+    
+    train_ix = train_ix[:int(len(train_ix)*fract)]
+
+    train_dataset = TensorDataset(
+        token_ids[train_ix],
+        attention_masks[train_ix],
+        labels[train_ix]
+    )
+    
+    val_dataset = TensorDataset(
+        token_ids[val_ix],
+        attention_masks[val_ix],
+        labels[val_ix]
+    )
+    
+    print(f'Training data size: {len(train_dataset)}')
+    print(f'Validation data size: {len(val_dataset)}')
+    
+    train_dataloader = DataLoader(
+        train_dataset,  # type: ignore
+        shuffle=True,
+        batch_size=args.batch_size,
+    )
+    
+    val_dataloader = DataLoader(
+        val_dataset,  # type: ignore
+        batch_size=args.batch_size,
+    )
+    
+    return train_dataloader, val_dataloader
