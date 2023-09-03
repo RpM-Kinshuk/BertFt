@@ -530,6 +530,7 @@ def get_train_eval(args):  # Done
 
 
 def main():
+    # Accelerator
     device = None
     if args.accelerate:
         device = accelerator.device
@@ -541,16 +542,20 @@ def main():
         else:
             device = torch.device('cpu')
     
+    # Get Data
     num_labels, train_dataloader, eval_dataloader = get_train_eval(args)
     print(f'Training data size: {len(train_dataloader)}')
     print(f'Validation data size: {len(eval_dataloader)}')
     
+    # Get Model and Optimizer
     model = get_model(args = args, num_labels = num_labels, device = device)
     optimizer = getOptim(model, vary_lyre = True, factor = 1)
     
+    # Get Initial Validation Loss
     i_val_loss, i_val_acc = calc_val_loss(model, eval_dataloader, device)
     print(f'Epoch 0: Val Loss: {i_val_loss:.2f} | Val Acc: {i_val_acc:.2f}')
     
+    # Get Training Loss
     train_loss, val_loss, val_acc = calc_train_loss(args=args, model=model, 
                                                     optimizer=optimizer, device=device, 
                                                     train_dataloader=train_dataloader, 
@@ -561,9 +566,10 @@ def main():
     base = {'train_loss_base': train_loss, 
              'val_loss_base': val_loss, 
              'val_acc_base':val_acc}
+    
     # Save model
     Path(args.savepath).mkdir(parents=True, exist_ok=True)
-    np.save(os.path.join(args.savepath, "baseline.npy"),
+    np.save(os.path.join(args.savepath, f"{args.task_name}/baseline.npy"),
             base) # type: ignore
     
 if __name__ == "__main__":
