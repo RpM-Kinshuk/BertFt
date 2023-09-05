@@ -591,7 +591,7 @@ def main():
              'val_loss_base': val_loss, 
              'val_acc_base':val_acc}
     
-    # Save model
+    # Save the data
     Path(args.savepath).mkdir(parents=True, exist_ok=True)
     np.save(os.path.join(args.savepath, f"{args.task_name}/baseline.npy"),
             base) # type: ignore
