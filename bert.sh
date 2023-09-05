@@ -1,5 +1,5 @@
 num_layers = "0 1 2 3 4 5 6 8 10 12 18 24 30 36 72 74"
-task_list = "cola sst-2 mrpc sts-b qqp mnli qnli rte wnli"
+task_list = "cola mnli mrpc qnli qqp rte sst2 stsb wnli"
 
 for task in $task_list
 do
