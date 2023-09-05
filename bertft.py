@@ -94,7 +94,7 @@ parser = argparse.ArgumentParser(description="BERT Fine-Tuning")
 # Parser Arguments and Defaults
 parser.add_argument("--savepath", type=str, default="/models", help="")
 parser.add_argument("--epochs", type=int, default=20, help="")
-parser.add_argument("--model_name", type=str, default="roberta-large", help="")
+parser.add_argument("--model_name", type=str, default="bert-base-uncased", help="")
 parser.add_argument("--task_name", type=str, default="cola", help="")
 parser.add_argument("--max_length", type=int, default=512, help="")
 parser.add_argument("--batch_size", type=int, default=32, help="")
