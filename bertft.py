@@ -1,34 +1,40 @@
-r"""Done
+'''
 num_layers = "0 1 2 3 4 5 6 8 10 12 18 24 30 36 72 74"
 task_list = "cola mnli mrpc qnli qqp rte sst2 stsb wnli"
+alpha_list = "True False"
 
-for task in $task_list
+
+for alpha in $alpha_list
 do
     for layers in $num_layers
     do
-        python bertft.py \
-            --savepath /models \
-            --epochs 20 \
-            --model_name bert-base-uncased \
-            --task_name $task \
-            --max_length 512 \
-            --batch_size 32 \
-            --learning_rate 2e-5 \
-            --seed 5 \
-            --freeze_bert True \
-            --num_layers $layers \
-            --alpha_ascending False \
-            --slow_tokenizer True \
-            --pad_to_max_length False \
-            --add_layer_norm False \
-            --max_train_steps 1000 \
-            --grad_acc_steps 1 \
-            --accelerate True \
+        for task in $task_list
+        do
+            save_path = "/RpMKin/data/bert_ft/lay_norm_False/alpha_asc_$alpha/layers_$num_layers/task_$task/lr2e-5_epoch20_bs32/"
+            python bertft.py \
+                --savepath $save_path \
+                --epochs 20 \
+                --model_name bert-base-uncased \
+                --task_name $task \
+                --max_length 512 \
+                --batch_size 32 \
+                --learning_rate '2e-5' \
+                --seed 5 \
+                --freeze_bert true \
+                --num_layers $layers \
+                --alpha_ascending $alpha \
+                --slow_tokenizer True \
+                --pad_to_max_length False \
+                --add_layer_norm False \
+                --max_train_steps 1000 \
+                --grad_acc_steps 1 \
+                --accelerate True
+        done
     done
 done
-"""
+'''
 
-#Imports
+# Imports
 import argparse
 import random
 import numpy as np
@@ -44,10 +50,13 @@ import pandas as pd
 import weightwatcher as ww
 import time
 import os
+
 # import logging
 from pathlib import Path
 from collections import defaultdict
 from typing import Optional, Tuple, Union
+
+from distutils.util import strtobool
 
 # other imports
 # import datasets
@@ -98,17 +107,59 @@ parser.add_argument("--model_name", type=str, default="bert-base-uncased", help=
 parser.add_argument("--task_name", type=str, default="cola", help="")
 parser.add_argument("--max_length", type=int, default=512, help="")
 parser.add_argument("--batch_size", type=int, default=32, help="")
-parser.add_argument("--learning_rate", type=float, default=2e-5, help="")
+parser.add_argument("--learning_rate", type=str, default=2e-5, help="")
 parser.add_argument("--seed", type=int, default=5, help="")
-parser.add_argument("--freeze_bert", type=bool, default=True, help="")
+parser.add_argument(
+    "--freeze_bert",
+    type=lambda b: bool(strtobool(b)),
+    nargs="?",
+    const=False,
+    default=True,
+    help="",
+)
 parser.add_argument("--num_layers", type=int, default=0, help="")
-parser.add_argument("--alpha_ascending", type=bool, default=False, help="")
-parser.add_argument("--slow_tokenizer", type=bool, default=True, help="")
-parser.add_argument("--pad_to_max_length", type=bool, default=False, help="")
+parser.add_argument(
+    "--alpha_ascending",
+    type=lambda b: bool(strtobool(b)),
+    nargs="?",
+    const=False,
+    default=False,
+    help="",
+)
+parser.add_argument(
+    "--slow_tokenizer",
+    type=lambda b: bool(strtobool(b)),
+    nargs="?",
+    const=False,
+    default=True,
+    help="",
+)
+parser.add_argument(
+    "--pad_to_max_length",
+    type=lambda b: bool(strtobool(b)),
+    nargs="?",
+    const=False,
+    default=False,
+    help="",
+)
 parser.add_argument("--max_train_steps", type=int, default=None, help="")
 parser.add_argument("--grad_acc_steps", type=int, default=1, help="")
-parser.add_argument("--accelerate", type=bool, default=True, help="")
-parser.add_argument("--add_layer_norm", type=bool, default=False, help="")
+parser.add_argument(
+    "--accelerate",
+    type=lambda b: bool(strtobool(b)),
+    nargs="?",
+    const=False,
+    default=False,
+    help="",
+)
+parser.add_argument(
+    "--add_layer_norm",
+    type=lambda b: bool(strtobool(b)),
+    nargs="?",
+    const=False,
+    default=False,
+    help="",
+)
 
 args = parser.parse_args()
 
@@ -125,11 +176,13 @@ set_seed(args.seed)  # transformers
 
 accelerator = Accelerator()
 
+
 # Model Architecture
 class BERTFT(BertPreTrainedModel):  # Done
     """
     BERT Fine-Tuning on GLUE tasks
     """
+
     def __init__(self, config):
         super().__init__(config)
         self.num_labels = config.num_labels
@@ -189,7 +242,7 @@ class BERTFT(BertPreTrainedModel):  # Done
         logits = self.classifier(intermediate_output)
 
         loss = None
-        
+
         # Calculate loss if labels are provided
         if labels is not None:
             if self.config.problem_type is None:
@@ -233,6 +286,7 @@ class BERTFT(BertPreTrainedModel):  # Done
             attentions=outputs.attentions,
         )
 
+
 # Custom training for Parameters
 def getCustomParams(model):  # Done
     new_params = []
@@ -243,6 +297,7 @@ def getCustomParams(model):  # Done
         else:
             pre_trained.append(val)
     return new_params, pre_trained
+
 
 # Optimizer
 def getOptim(model, vary_lyre, factor=1):  # Done
@@ -260,6 +315,7 @@ def getOptim(model, vary_lyre, factor=1):  # Done
             lr=args.learning_rate,
         )
 
+
 # Model
 def get_model(args, num_labels, device):  # Done
     model = BERTFT.from_pretrained(
@@ -268,7 +324,7 @@ def get_model(args, num_labels, device):  # Done
         # cache_dir=args.savepath,
     )
     model.to(device)  # type: ignore
-    
+
     # If freeze_bert is true, freeze pre-trained layers
     if args.freeze_bert:
         print("Freezing BERT")
@@ -283,6 +339,7 @@ def get_model(args, num_labels, device):  # Done
         for param in model.parameters():  # type: ignore
             param.requires_grad = True
     return model
+
 
 # Validation Loss
 def calc_val_loss(model, eval_dataloader, device):  # Done
@@ -310,10 +367,10 @@ def calc_val_loss(model, eval_dataloader, device):  # Done
         val_examples += input_len
     return loss / val_examples, correct / val_examples
 
+
 # Training Loss
-def calc_train_loss(args, model,  # Done
-                    optimizer, device, 
-                    train_dataloader, eval_dataloader
+def calc_train_loss(   # Done
+    args, model, optimizer, device, train_dataloader, eval_dataloader
 ):
     num_all_pts = 0
     train_losses = []
@@ -332,12 +389,13 @@ def calc_train_loss(args, model,  # Done
         )
     else:
         model.to(device)
-    
+
     num_steps = args.epochs * len(train_dataloader)
-    
-    progress_bar = tqdm(range(num_steps),
-                        #disable=not accelerator.is_local_main_process
-                    )
+
+    progress_bar = tqdm(
+        range(num_steps),
+        # disable=not accelerator.is_local_main_process
+    )
 
     model.train()
 
@@ -350,7 +408,9 @@ def calc_train_loss(args, model,  # Done
         # Save WeightWatcher Metrics
         watcher = ww.WeightWatcher(model=model)
         ww_details = watcher.analyze(min_evals=0)
-        ww_details.to_csv(os.path.join(stats_path, f"{args.task_name}/epoch_{epoch}.csv"))
+        ww_details.to_csv(
+            os.path.join(stats_path, f"{args.task_name}/epoch_{epoch}.csv")
+        )
 
         print(f"=======>Epoch {epoch+1}/{args.epochs}")
 
@@ -367,26 +427,27 @@ def calc_train_loss(args, model,  # Done
                 .to_list()
             )
             print("Training layers:", train_names)
-            
+
             layer_to_train = []
-            
+
             for layer in train_names:
-                
                 layer_to_train.append(layer + ".weight")
                 layer_to_train.append(layer + ".bias")
-                
+
                 # Add Layer Norm
                 if args.add_layer_norm:
                     if "output" in layer:
                         layer_to_train.append(
-                            layer.replace("dense", "LayerNorm") + ".weight")
+                            layer.replace("dense", "LayerNorm") + ".weight"
+                        )
                         layer_to_train.append(
-                            layer.replace("dense", "LayerNorm") + ".bias")
-            
+                            layer.replace("dense", "LayerNorm") + ".bias"
+                        )
+
             layer_to_train = list(set(layer_to_train))
-            
+
             print("Final Training layers:", layer_to_train)
-            
+
             for name, param in model.named_parameters():
                 if name in layer_to_train:
                     print(f"Enabling {name} parameter")
@@ -439,6 +500,7 @@ def calc_train_loss(args, model,  # Done
 
     return train_losses, val_losses, val_accs
 
+
 # Copy Model Parameters
 def get_model_params(model):  # Done
     params = {}
@@ -446,9 +508,9 @@ def get_model_params(model):  # Done
         params[name] = copy.deepcopy(model.state_dict()[name])
     return params
 
+
 # Get GLUE Train and Eval Dataloaders
 def get_train_eval(args):  # Done
-
     num_labels = 1
     label_list = []
     # Load Raw Data and find num_labels
@@ -467,7 +529,7 @@ def get_train_eval(args):  # Done
             num_labels = len(label_list)
 
     # Load Tokenizer
-    tokenizer = BertTokenizer.from_pretrained( # Done
+    tokenizer = BertTokenizer.from_pretrained(  # Done
         args.model_name,
         do_lower_case=True,
         use_fast=not args.slow_tokenizer,
@@ -481,22 +543,19 @@ def get_train_eval(args):  # Done
 
     # Set target padding
     padding = "max_length" if args.pad_to_max_length else False
-    
+
     if args.task_name is None and not is_regression:
-      label_to_id = {v: i for i, v in enumerate(label_list)}
-    
+        label_to_id = {v: i for i, v in enumerate(label_list)}
+
     # Preprocess Data
     def preprocess(input):
         texts = (
             (input[sentence1_key],)
             if sentence2_key is None
-            else 
-            (input[sentence1_key], input[sentence2_key])
+            else (input[sentence1_key], input[sentence2_key])
         )
         result = tokenizer(
-            *texts, padding=padding,
-            max_length=args.max_length,
-            truncation=True
+            *texts, padding=padding, max_length=args.max_length, truncation=True
         )
         if "label" in input:
             if label_to_id is not None:
@@ -524,9 +583,10 @@ def get_train_eval(args):  # Done
         )
 
     train_dataset = processed_datasets["train"]  # type: ignore
-    eval_dataset = processed_datasets["validation_matched" # type: ignore
-                                      if args.task_name == "mnli" 
-                                      else "validation"]
+    eval_dataset = processed_datasets["validation_matched"  # type: ignore
+        if args.task_name == "mnli"
+        else "validation"
+    ]
 
     for index in random.sample(range(len(train_dataset)), 3):
         print(f"Sample {index} of train set: {train_dataset[index]}")
@@ -534,8 +594,7 @@ def get_train_eval(args):  # Done
     if args.pad_to_max_length:
         data_collator = default_data_collator
     else:
-        data_collator = DataCollatorWithPadding(tokenizer,
-                                                pad_to_multiple_of=8)
+        data_collator = DataCollatorWithPadding(tokenizer, pad_to_multiple_of=8)
 
     train_dataloader = DataLoader(
         train_dataset,  # type: ignore
@@ -552,6 +611,7 @@ def get_train_eval(args):  # Done
 
     return num_labels, train_dataloader, eval_dataloader
 
+
 # Main
 def main():
     # Accelerator
@@ -559,47 +619,54 @@ def main():
     if args.accelerate:
         device = accelerator.device
     else:
-        if(torch.cuda.is_available()):
-            device = torch.device('cuda')
+        if torch.cuda.is_available():
+            device = torch.device("cuda")
         elif torch.backends.mps.is_available():
-            device = torch.device('mps')
+            device = torch.device("mps")
         else:
-            device = torch.device('cpu')
-    
+            device = torch.device("cpu")
+
     # Get Data
     num_labels, train_dataloader, eval_dataloader = get_train_eval(args)
-    print(f'Training data size: {len(train_dataloader)}')
-    print(f'Validation data size: {len(eval_dataloader)}')
-    
+    print(f"Training data size: {len(train_dataloader)}")
+    print(f"Validation data size: {len(eval_dataloader)}")
+
     # Get Model and Optimizer
-    model = get_model(args = args, num_labels = num_labels, device = device)
-    optimizer = getOptim(model, vary_lyre = True, factor = 1)
-    
+    model = get_model(args=args, num_labels=num_labels, device=device)
+    optimizer = getOptim(model, vary_lyre=True, factor=1)
+
     # Get Initial Validation Loss
     i_val_loss, i_val_acc = calc_val_loss(model, eval_dataloader, device)
-    print(f'Epoch 0: Val Loss: {i_val_loss:.2f} | Val Acc: {i_val_acc:.2f}')
-    
+    print(f"Epoch 0: Val Loss: {i_val_loss:.2f} | Val Acc: {i_val_acc:.2f}")
+
     # Get Training Loss
-    train_loss, val_loss, val_acc = calc_train_loss(args=args, model=model, 
-                                                    optimizer=optimizer, device=device, 
-                                                    train_dataloader=train_dataloader, 
-                                                    eval_dataloader=eval_dataloader)
-    
+    train_loss, val_loss, val_acc = calc_train_loss(
+        args=args,
+        model=model,
+        optimizer=optimizer,
+        device=device,
+        train_dataloader=train_dataloader,
+        eval_dataloader=eval_dataloader,
+    )
+
     val_loss = [i_val_loss] + val_loss
     val_acc = [i_val_acc] + val_acc
-    base = {'train_loss_base': train_loss, 
-             'val_loss_base': val_loss, 
-             'val_acc_base':val_acc}
-    
+    base = {
+        "train_loss_base": train_loss,
+        "val_loss_base": val_loss,
+        "val_acc_base": val_acc,
+    }
+
     # Save the data
     Path(args.savepath).mkdir(parents=True, exist_ok=True)
-    np.save(os.path.join(args.savepath, f"{args.task_name}/baseline.npy"),
-            base) # type: ignore
-    
+    np.save(
+        os.path.join(args.savepath, 
+                     f"{args.task_name}/baseline.npy"
+                     ), base)  # type: ignore
+
+
 if __name__ == "__main__":
     main()
-
-
 
 
 # overrode_max_train_steps = False
@@ -618,42 +685,45 @@ if __name__ == "__main__":
 #     else:
 #         metric = evaluate.load("accuracy")
 
+
 # Custom Preprocessing | WORK IN PROGRESS
 def preprocessing(input_text, tokenizer):
-    '''
+    """
     Returns <class transformers.tokenization_utils_base.BatchEncoding> with the following fields:
     - input_ids: list of token ids
     - token_type_ids: list of token type ids
     - attention_mask: list of indices (0,1) specifying which tokens should considered
     by the model (return_attention_mask = True).
-    '''
+    """
     return tokenizer.encode_plus(
-                        input_text,
-                        add_special_tokens = True,
-                        max_length = 32,
-                        pad_to_max_length = True,
-                        return_attention_mask = True,
-                        return_tensors = 'pt'
-                   )
+        input_text,
+        add_special_tokens=True,
+        max_length=32,
+        pad_to_max_length=True,
+        return_attention_mask=True,
+        return_tensors="pt",
+    )
+
 
 # Get Custom Dataloaders | WORK IN PROGRESS
-def get_dataloaders(args, df, val_ratio = 0.2, fract = 0.1):
-    
-    labels = df['label'].values
-    train_ix, val_ix = train_test_split(np.arange(len(labels)), 
-                                        test_size = val_ratio, 
-                                        stratify = labels,
-                                        random_state = args.seed)
+def get_dataloaders(args, df, val_ratio=0.2, fract=0.1):
+    labels = df["label"].values
+    train_ix, val_ix = train_test_split(
+        np.arange(len(labels)),
+        test_size=val_ratio,
+        stratify=labels,
+        random_state=args.seed,
+    )
 
     text = df.text.values
     labels = df.label.values
     truncate_text = False
-    
-    if truncate_text:
-        text = text[:int(len(text)*fract)]
-        labels = labels[:int(len(labels)*fract)]
 
-    tokenizer = BertTokenizer.from_pretrained( # Done
+    if truncate_text:
+        text = text[: int(len(text) * fract)]
+        labels = labels[: int(len(labels) * fract)]
+
+    tokenizer = BertTokenizer.from_pretrained(  # Done
         args.model_name,
         do_lower_case=True,
         use_fast=not args.slow_tokenizer,
@@ -662,39 +732,35 @@ def get_dataloaders(args, df, val_ratio = 0.2, fract = 0.1):
     attention_masks = []
     for sample in text:
         en_dict = preprocessing(sample, tokenizer)
-        token_ids.append(en_dict['input_ids'])
-        attention_masks.append(en_dict['attention_mask'])
-    
-    token_ids = torch.cat(token_ids, dim = 0)
-    attention_masks = torch.cat(attention_masks, dim = 0)
+        token_ids.append(en_dict["input_ids"])
+        attention_masks.append(en_dict["attention_mask"])
+
+    token_ids = torch.cat(token_ids, dim=0)
+    attention_masks = torch.cat(attention_masks, dim=0)
     labels = torch.tensor(labels)
-    
-    train_ix = train_ix[:int(len(train_ix)*fract)]
+
+    train_ix = train_ix[: int(len(train_ix) * fract)]
 
     train_dataset = TensorDataset(
-        token_ids[train_ix],
-        attention_masks[train_ix],
-        labels[train_ix]
+        token_ids[train_ix], attention_masks[train_ix], labels[train_ix]
     )
-    
+
     val_dataset = TensorDataset(
-        token_ids[val_ix],
-        attention_masks[val_ix],
-        labels[val_ix]
+        token_ids[val_ix], attention_masks[val_ix], labels[val_ix]
     )
-    
-    print(f'Training data size: {len(train_dataset)}')
-    print(f'Validation data size: {len(val_dataset)}')
-    
+
+    print(f"Training data size: {len(train_dataset)}")
+    print(f"Validation data size: {len(val_dataset)}")
+
     train_dataloader = DataLoader(
         train_dataset,  # type: ignore
         shuffle=True,
         batch_size=args.batch_size,
     )
-    
+
     val_dataloader = DataLoader(
         val_dataset,  # type: ignore
         batch_size=args.batch_size,
     )
-    
+
     return train_dataloader, val_dataloader
