@@ -661,7 +661,7 @@ def main():
     Path(args.savepath).mkdir(parents=True, exist_ok=True)
     np.save(
         os.path.join(args.savepath, 
-                     f"{args.task_name}/baseline.npy"
+                     'baseline.npy'
                      ), base)  # type: ignore
 
 
