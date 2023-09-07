@@ -12,6 +12,7 @@ freeze_bert = ["False", "True"]
 train_seed_lst = [3, 5, 7]
 seed = train_seed_lst[1]
 max_length = 512
+
 batch_size = 64
 epochs = 20
 
