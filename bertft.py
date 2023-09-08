@@ -377,7 +377,7 @@ def calc_train_loss(   # Done
     val_losses = []
     val_accs = []
 
-    stats_path = os.path.join(args.savepath, "stats")
+    stats_path = os.path.join(args.savepath, 'stats')
     Path(stats_path).mkdir(parents=True, exist_ok=True)
 
     start_time = time.time()
@@ -400,6 +400,7 @@ def calc_train_loss(   # Done
     model.train()
 
     for epoch in range(args.epochs):
+        
         model.train()
         train_loss = 0
         val_loss = 0
@@ -409,7 +410,7 @@ def calc_train_loss(   # Done
         watcher = ww.WeightWatcher(model=model)
         ww_details = watcher.analyze(min_evals=0)
         ww_details.to_csv(
-            os.path.join(stats_path, f"{args.task_name}/epoch_{epoch}.csv")
+            os.path.join(stats_path, f"epoch_{epoch}.csv")
         )
 
         print(f"=======>Epoch {epoch+1}/{args.epochs}")
@@ -466,8 +467,11 @@ def calc_train_loss(   # Done
                 # attention_mask=batch['attention_mask'].to(device),
                 # labels=batch['labels'].to(device),
             )
-            accelerator.backward(outputs.loss)
-            # output.loss.backward()
+            '''if args.accelerate:
+                accelerator.backward(outputs.loss)
+            else:
+                outputs.loss.backward()'''
+            outputs.loss.backward()
             optimizer.step()
             progress_bar.update(1)
             train_loss += outputs.loss.item()
@@ -486,7 +490,7 @@ def calc_train_loss(   # Done
                     elif torch.sum(param.grad.abs()).item() > 0:
                         freeze_dict["freeze_layer"].append(False)
                 pd.DataFrame(freeze_dict).to_csv(
-                    os.path.join(stats_path, f"{args.task_name}/freeze_{epoch}.csv")
+                    os.path.join(stats_path, f"freeze_{epoch}.csv")
                 )
             time_elapsed = (time.time() - start_time) / 60
 
