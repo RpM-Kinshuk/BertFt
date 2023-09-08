@@ -65,9 +65,9 @@ from distutils.util import strtobool
 from accelerate import Accelerator
 import accelerate.utils
 from datasets import load_dataset
-from sklearn.model_selection import train_test_split
+# from sklearn.model_selection import train_test_split
 
-from torch.utils.data import TensorDataset
+# from torch.utils.data import TensorDataset
 
 from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
@@ -76,13 +76,13 @@ from transformers import (
     BertTokenizer,
     BertPreTrainedModel,
     BertModel,
-    AutoTokenizer,
+    # AutoTokenizer,
     DataCollatorWithPadding,
-    PretrainedConfig,
-    SchedulerType,
+    # PretrainedConfig,
+    # SchedulerType,
     default_data_collator,
     set_seed,
-    get_scheduler,
+    # get_scheduler,
 )
 
 # Keys for GLUE Tasks
@@ -101,7 +101,7 @@ task_to_keys = {  # Done
 parser = argparse.ArgumentParser(description="BERT Fine-Tuning")
 
 # Parser Arguments and Defaults
-parser.add_argument("--savepath", type=str, default="/models", help="")
+parser.add_argument("--savepath", type=str, default="/rscratch/tpang/kinshuk/RpMKin/bert_ft/models", help="")
 parser.add_argument("--epochs", type=int, default=20, help="")
 parser.add_argument("--model_name", type=str, default="bert-base-uncased", help="")
 parser.add_argument("--task_name", type=str, default="cola", help="")
@@ -330,13 +330,13 @@ def get_model(args, num_labels, device):  # Done
         print("Freezing BERT")
         for name, param in model.named_parameters():  # type: ignore
             if "classifier" in name or "new_layer" in name:
-                param.requires_grad = False
-            else:
                 param.requires_grad = True
+            else:
+                param.requires_grad = False
     # Else, unfreeze all layers
     else:
         print("Defreezing BERT")
-        for param in model.parameters():  # type: ignore
+        for name, param in model.named_parameters():  # type: ignore
             param.requires_grad = True
     return model
 
@@ -349,7 +349,7 @@ def calc_val_loss(model, eval_dataloader, device):  # Done
     model.eval()
     for step, batch in enumerate(eval_dataloader):
         batch = batch.to(device)
-        input_len = len(batch[2])
+        input_len = len(batch['labels'])
         with torch.no_grad():
             outputs = model(
                 **batch,
@@ -361,7 +361,7 @@ def calc_val_loss(model, eval_dataloader, device):  # Done
             logits = outputs.logits
             _, predict = torch.max(logits, dim=1)
 
-            correct += sum(predict == batch[2]).item()  # type: ignore
+            correct += sum(predict == batch['labels']).item()  # type: ignore
 
         loss += outputs.loss.item() * input_len
         val_examples += input_len
@@ -372,6 +372,7 @@ def calc_val_loss(model, eval_dataloader, device):  # Done
 def calc_train_loss(   # Done
     args, model, optimizer, device, train_dataloader, eval_dataloader
 ):
+    model.train()
     num_all_pts = 0
     train_losses = []
     val_losses = []
@@ -397,8 +398,6 @@ def calc_train_loss(   # Done
         # disable=not accelerator.is_local_main_process
     )
 
-    model.train()
-
     for epoch in range(args.epochs):
         
         model.train()
@@ -408,24 +407,23 @@ def calc_train_loss(   # Done
 
         # Save WeightWatcher Metrics
         watcher = ww.WeightWatcher(model=model)
-        ww_details = watcher.analyze(min_evals=0)
+        ww_details = watcher.analyze(min_evals=10)
         ww_details.to_csv(
             os.path.join(stats_path, f"epoch_{epoch}.csv")
         )
 
-        print(f"=======>Epoch {epoch+1}/{args.epochs}")
+        print(f"===============>Epoch {epoch+1}/{args.epochs}")
 
         if epoch == 0:
             # CHOOSING LAYERS TO TRAIN
             filtered = ww_details[
-                ww_details["longname"].str.contains("new_layer|classifier")
+                ww_details["longname"].str.contains("new_layer|embeddings")==False
             ]
             train_names = (
-                filtered.sort_values(by=["alpha"], ascending=args.alpha_ascending)[
-                    "longname"
-                ]
-                .iloc[: args.num_layers]
-                .to_list()
+                filtered.sort_values(
+                    by=["alpha"], 
+                    ascending=args.alpha_ascending
+                    )["longname"].iloc[:args.num_layers].to_list()
             )
             print("Training layers:", train_names)
 
@@ -453,8 +451,6 @@ def calc_train_loss(   # Done
                 if name in layer_to_train:
                     print(f"Enabling {name} parameter")
                     param.requires_grad = True
-                else:
-                    param.requires_grad = False
 
         # Training Loop
         for step, batch in enumerate(train_dataloader):
@@ -473,10 +469,9 @@ def calc_train_loss(   # Done
                 outputs.loss.backward()'''
             outputs.loss.backward()
             optimizer.step()
-            progress_bar.update(1)
             train_loss += outputs.loss.item()
-            tr_examples += len(batch[0])
-            num_all_pts += len(batch[0])
+            tr_examples += len(batch['labels'])
+            num_all_pts += len(batch['labels'])
             tr_steps += 1
             train_losses.append(train_loss / tr_steps)
 
@@ -492,16 +487,16 @@ def calc_train_loss(   # Done
                 pd.DataFrame(freeze_dict).to_csv(
                     os.path.join(stats_path, f"freeze_{epoch}.csv")
                 )
-            
-            time_elapsed = (time.time() - start_time) / 60
+        progress_bar.update(1)    
+        time_elapsed = (time.time() - start_time) / 60
 
-            # Validation Loss
-            val_loss, val_acc = calc_val_loss(model, eval_dataloader, device)
-            print(
-                f"Epoch: {epoch+1}/{args.epochs} | Time Elapsed: {time_elapsed:.2f} mins | Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.4f}"
-            )
-            val_losses.append(val_loss)
-            val_accs.append(val_acc)
+        # Validation Loss
+        val_loss, val_acc = calc_val_loss(model, eval_dataloader, device)
+        print(
+            f"Epoch: {epoch+1}/{args.epochs} | Time Elapsed: {time_elapsed:.2f} mins | Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.4f}"
+        )
+        val_losses.append(val_loss)
+        val_accs.append(val_acc)
 
     return train_losses, val_losses, val_accs
 
@@ -563,12 +558,12 @@ def get_train_eval(args):  # Done
             *texts, padding=padding, max_length=args.max_length, truncation=True
         )
         if "label" in input:
-            if label_to_id is not None:
+            '''if label_to_id is not None:
                 # Map labels to IDs (not necessary for GLUE tasks)
                 result["labels"] = [label_to_id[l] for l in input["label"]]
-            else:
-                # In all cases, rename the column to labels because the model will expect that.
-                result["labels"] = input["label"]
+            else:'''
+            # In all cases, rename the column to labels because the model will expect that.
+            result["labels"] = input["label"]
         return result
 
     if args.accelerate:
@@ -638,7 +633,7 @@ def main():
 
     # Get Model and Optimizer
     model = get_model(args=args, num_labels=num_labels, device=device)
-    optimizer = getOptim(model, vary_lyre=True, factor=1)
+    optimizer = getOptim(model, vary_lyre=False, factor=1)
 
     # Get Initial Validation Loss
     i_val_loss, i_val_acc = calc_val_loss(model, eval_dataloader, device)
