@@ -9,7 +9,7 @@ do
     do
         for task in $task_list
         do
-            save_path="/RpMKin/data/bert_ft/lay_norm_False/alpha_asc_$alpha/layers_$num_layers/task_$task/lr2e-5_epoch20_bs32/"
+            save_path="/rscratch/tpang/kinshuk/RpMKin/bert_ft/lay_norm_False/alpha_asc_$alpha/layers_$num_layers/task_$task/lr2e-5_epoch20_bs32/"
             python bertft.py \
                 --savepath "$save_path" \
                 --epochs 20 \
