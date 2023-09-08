@@ -142,7 +142,7 @@ parser.add_argument(
     default=False,
     help="",
 )
-parser.add_argument("--max_train_steps", type=int, default=None, help="")
+parser.add_argument("--max_train_steps", type=int, default=1000, help="")
 parser.add_argument("--grad_acc_steps", type=int, default=1, help="")
 parser.add_argument(
     "--accelerate",
