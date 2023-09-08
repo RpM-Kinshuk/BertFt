@@ -13,7 +13,7 @@ train_seed_lst = [3, 5, 7]
 seed = train_seed_lst[1]
 max_length = 512
 
-batch_size = 64
+batch_size = 32
 epochs = 20
 
 logger = get_logger('log', 'schedule_subspace.log')
@@ -26,7 +26,8 @@ BASH_COMMAND_LIST = []
 
 for norm, order, layers, task in grid:
     
-    save_path = f"/RpMKin/data/bert_ft/lay_norm_{norm}/alpha_asc_{order}/layers_{layers}/task_{task}/lr2e-5_epoch{epochs}_bs{batch_size}/"
+    save_path = "/rscratch/tpang/kinshuk/RpMKin/bert_ft" + \
+        f"/lay_norm_{norm}/alpha_asc_{order}/layers_{layers}/task_{task}/lr2e-5_epoch{epochs}_bs{batch_size}/"
 
     cmd = "OMP_NUM_THREADS=1 python bertft.py " + \
         f"--savepath {save_path} " + \

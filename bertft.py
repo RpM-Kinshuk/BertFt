@@ -492,6 +492,7 @@ def calc_train_loss(   # Done
                 pd.DataFrame(freeze_dict).to_csv(
                     os.path.join(stats_path, f"freeze_{epoch}.csv")
                 )
+            
             time_elapsed = (time.time() - start_time) / 60
 
             # Validation Loss
