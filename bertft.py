@@ -412,7 +412,7 @@ def calc_train_loss(   # Done
             os.path.join(stats_path, f"epoch_{epoch}.csv")
         )
 
-        print(f"===============>Epoch {epoch+1}/{args.epochs}")
+        print(f"=====================> Epoch {epoch+1}/{args.epochs}")
 
         if epoch == 0:
             # CHOOSING LAYERS TO TRAIN
