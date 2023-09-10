@@ -73,12 +73,14 @@ from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 import copy
 from transformers import (
+    AutoModelForSequenceClassification,
     BertTokenizer,
     BertPreTrainedModel,
     BertModel,
-    # AutoTokenizer,
+    AutoTokenizer,
     DataCollatorWithPadding,
-    # PretrainedConfig,
+    AutoConfig,
+    PretrainedConfig,
     # SchedulerType,
     default_data_collator,
     set_seed,
@@ -300,7 +302,7 @@ def getCustomParams(model):  # Done
 
 
 # Optimizer
-def getOptim(model, vary_lyre, factor=1):  # Done
+def getOptim(model, vary_lyre=False, factor=1):  # Done
     if vary_lyre:
         new_params, pre_params = getCustomParams(model)
         return torch.optim.AdamW(
@@ -487,7 +489,7 @@ def calc_train_loss(   # Done
                 pd.DataFrame(freeze_dict).to_csv(
                     os.path.join(stats_path, f"freeze_{epoch}.csv")
                 )
-        progress_bar.update(1)    
+            progress_bar.update(1)    
         time_elapsed = (time.time() - start_time) / 60
 
         # Validation Loss
@@ -535,18 +537,29 @@ def get_train_eval(args):  # Done
         use_fast=not args.slow_tokenizer,
     )
 
+    model = get_model(args=args, num_labels=num_labels, device=None)
+    
     # Define keys for both inputs
     if args.task_name is not None:
         sentence1_key, sentence2_key = task_to_keys[args.task_name]
     else:
         sentence1_key, sentence2_key = "sentence1", "sentence2"
 
+    label_to_id = None
+    
     # Set target padding
     padding = "max_length" if args.pad_to_max_length else False
 
     if args.task_name is None and not is_regression:
         label_to_id = {v: i for i, v in enumerate(label_list)}
 
+    if label_to_id is not None:
+        model.config.label2id = label_to_id # type: ignore
+        model.config.id2label = {id: label for label, id in label_to_id.items()} # type: ignore
+    elif args.task_name is not None and not is_regression:
+        model.config.label2id = {l: i for i, l in enumerate(label_list)} # type: ignore
+        model.config.id2label = {id: label for label, id in model.config.label2id.items()} # type: ignore
+    
     # Preprocess Data
     def preprocess(input):
         texts = (
@@ -558,12 +571,12 @@ def get_train_eval(args):  # Done
             *texts, padding=padding, max_length=args.max_length, truncation=True
         )
         if "label" in input:
-            '''if label_to_id is not None:
+            if label_to_id is not None:
                 # Map labels to IDs (not necessary for GLUE tasks)
                 result["labels"] = [label_to_id[l] for l in input["label"]]
-            else:'''
-            # In all cases, rename the column to labels because the model will expect that.
-            result["labels"] = input["label"]
+            else:
+                # In all cases, rename the column to labels because the model will expect that.
+                result["labels"] = input["label"]
         return result
 
     if args.accelerate:
@@ -609,7 +622,7 @@ def get_train_eval(args):  # Done
         batch_size=args.batch_size,
     )
 
-    return num_labels, train_dataloader, eval_dataloader
+    return model, train_dataloader, eval_dataloader
 
 
 # Main
@@ -627,12 +640,13 @@ def main():
             device = torch.device("cpu")
 
     # Get Data
-    num_labels, train_dataloader, eval_dataloader = get_train_eval(args)
+    model, train_dataloader, eval_dataloader = get_train_eval(args)
+    model.to(device)  # type: ignore
     print(f"Training data size: {len(train_dataloader)}")
     print(f"Validation data size: {len(eval_dataloader)}")
 
     # Get Model and Optimizer
-    model = get_model(args=args, num_labels=num_labels, device=device)
+    # model = get_model(args=args, num_labels=num_labels, device=device)
     optimizer = getOptim(model, vary_lyre=False, factor=1)
 
     # Get Initial Validation Loss
