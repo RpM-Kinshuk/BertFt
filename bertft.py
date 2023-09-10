@@ -349,7 +349,7 @@ def calc_val_loss(model, eval_dataloader, device):  # Done
     model.eval()
     for step, batch in enumerate(eval_dataloader):
         batch = batch.to(device)
-        input_len = len(batch['labels'])
+        input_len = len(batch['input_ids'])
         with torch.no_grad():
             outputs = model(
                 **batch,
