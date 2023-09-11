@@ -478,7 +478,6 @@ def calc_val_loss(model, eval_dataloader, device):  # Done
     correct = 0
     model.eval()
     for step, batch in enumerate(eval_dataloader):
-        batch = batch.to(device)
         input_len = len(batch['input_ids'])
         with torch.no_grad():
             outputs = model(
@@ -567,7 +566,7 @@ def calc_train_loss(   # Done
 
             layer_to_train = list(set(layer_to_train))
 
-            print("Final Training layers:", layer_to_train)
+            # print("Final Training layers:", layer_to_train)
 
             for name, param in model.named_parameters():
                 if name in layer_to_train:
@@ -579,7 +578,6 @@ def calc_train_loss(   # Done
         # Training Loop
         for step, batch in enumerate(train_dataloader):
             optimizer.zero_grad()
-            batch = batch.to(device)
             outputs = model(
                 # **batch,
                 input_ids = batch['input_ids'].to(device),
@@ -631,6 +629,10 @@ def calc_train_loss(   # Done
 
 # Main
 def main():
+    
+    print(f'\n\n\nTask to finetune: {args.task_name}\n\n\n')
+    print(f'alpha Decreasing: {not args.alpha_ascending}\n\n\n')
+    print(f'Layers to train: {args.num_layers}\n\n\n')
     # Accelerator
     device = None
     if args.accelerate:
