@@ -73,14 +73,14 @@ from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 import copy
 from transformers import (
-    AutoModelForSequenceClassification,
+    # AutoModelForSequenceClassification,
     BertTokenizer,
     BertPreTrainedModel,
     BertModel,
-    AutoTokenizer,
+    # AutoTokenizer,
     DataCollatorWithPadding,
-    AutoConfig,
-    PretrainedConfig,
+    # AutoConfig,
+    # PretrainedConfig,
     # SchedulerType,
     default_data_collator,
     set_seed,
@@ -682,10 +682,11 @@ def main():
     }
 
     if args.debug:
-        print("Debug Mode")
-        print("\nTrain Loss:", train_loss)
-        print("\nVal Loss:", val_loss)
-        print("\nVal Acc:", val_acc)
+        print("\n->Debug Mode<-")
+        print("\nTrain Loss:")
+        print(*[train_loss[i] for i in range(0, len(train_loss), args.batch_size)])
+        print("\nVal Loss:\n", val_loss)
+        print("\nVal Acc:\n", val_acc)
     else:
         # Save the data
         Path(args.savepath).mkdir(parents=True, exist_ok=True)
