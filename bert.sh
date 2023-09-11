@@ -3,13 +3,13 @@ task_list="cola mnli mrpc qnli qqp rte sst2 stsb wnli"
 alpha_list="True False"
 laynorm="False"
 
-for alpha in $alpha_list
+for task in $task_list
 do
-    for layers in $num_layers
+    for alpha in $alpha_list
     do
-        for task in $task_list
+        for layers in $num_layers
         do
-            save_path="/rscratch/tpang/kinshuk/RpMKin/bert_ft/task_$task/lay_norm_$laynorm/alpha_asc_$alpha/layers_$num_layers/lr2e-5_epoch20_bs32/"
+            save_path="/rscratch/tpang/kinshuk/RpMKin/bert_ft/task_$task/lay_norm_$laynorm/alpha_asc_$alpha/layers_$num_layers/lr2e-5_epoch3_bs32/"
             python bertft.py \
                 --savepath "$save_path" \
                 --epochs 3 \
@@ -27,7 +27,7 @@ do
                 --add_layer_norm $laynorm \
                 --max_train_steps 1000 \
                 --grad_acc_steps 1 \
-                --accelerate True \
+                --accelerate False \
                 --debug False
         done
     done
