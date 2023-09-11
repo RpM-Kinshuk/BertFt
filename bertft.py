@@ -621,7 +621,7 @@ def calc_train_loss(   # Done
         # Validation Loss
         val_loss, val_acc = calc_val_loss(model, eval_dataloader, device)
         print(
-            f"Epoch: {epoch+1}/{args.epochs}|Elapsed: {time_elapsed:.2f} mins|Val Loss: {val_loss:.4f}|Val Acc: {val_acc:.4f}"
+            f"\nEpoch: {epoch+1}/{args.epochs}|Elapsed: {time_elapsed:.2f} mins|Val Loss: {val_loss:.4f}|Val Acc: {val_acc:.4f}"
         )
         val_losses.append(val_loss)
         val_accs.append(val_acc)
@@ -661,7 +661,7 @@ def main():
     
     # Get Initial Validation Loss
     i_val_loss, i_val_acc = calc_val_loss(model, eval_dataloader, device)
-    print(f"\nEpoch 0 / {args.epochs} | Val Loss: {i_val_loss:.2f} | Val Acc: {i_val_acc:.2f}")
+    print(f"\nEpoch 0/{args.epochs} | Val Loss: {i_val_loss:.2f} | Val Acc: {i_val_acc:.2f}")
 
     # Get Training Loss
     train_loss, val_loss, val_acc = calc_train_loss(
