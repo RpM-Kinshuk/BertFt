@@ -10,7 +10,7 @@ do
     do
         for layers in $num_layers
         do
-            save_path="/rscratch/tpang/kinshuk/RpMKin/bert_ft/task_$task/lay_norm_$laynorm/alpha_asc_$alpha/layers_$num_layers/lr2e-5_epoch3_bs$batch_size/"
+            save_path="/rscratch/tpang/kinshuk/RpMKin/bert_ft/task_$task/lay_norm_$laynorm/alpha_asc_$alpha/layers_$layers/lr2e-5_epoch3_bs$batch_size/"
             OMP_NUM_THREADS=1 CUDA_VISIBLE_DEVICES=0 python bertft.py \
                 --savepath "$save_path" \
                 --epochs 3 \
