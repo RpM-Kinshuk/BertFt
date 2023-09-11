@@ -162,6 +162,14 @@ parser.add_argument(
     default=False,
     help="",
 )
+parser.add_argument(
+    "--debug",
+    type=lambda b: bool(strtobool(b)),
+    nargs="?",
+    const=False,
+    default=True,
+    help="",
+)
 
 args = parser.parse_args()
 
@@ -319,14 +327,12 @@ def getOptim(model, vary_lyre=False, factor=1):  # Done
 
 
 # Model
-def get_model(args, num_labels, device):  # Done
+def get_model(args, num_labels):  # Done
     model = BERTFT.from_pretrained(
         args.model_name,
         num_labels=num_labels,
         # cache_dir=args.savepath,
     )
-    model.to(device)  # type: ignore
-
     # If freeze_bert is true, freeze pre-trained layers
     if args.freeze_bert:
         print("Freezing BERT")
@@ -377,7 +383,7 @@ def get_model_data(args):  # Done
         use_fast=not args.slow_tokenizer,
     )
 
-    model = get_model(args=args, num_labels=num_labels, device=None)
+    model = get_model(args=args, num_labels=num_labels)
     
     # Define keys for both inputs
     if args.task_name is not None:
@@ -476,26 +482,26 @@ def calc_val_loss(model, eval_dataloader, device):  # Done
         input_len = len(batch['input_ids'])
         with torch.no_grad():
             outputs = model(
-                **batch,
-                # input_ids = batch['input_ids'].to(device),
-                # token_type_ids=None,
-                # attention_mask=batch['attention_mask'].to(device),
-                # labels=batch['labels'].to(device),
+                # **batch,
+                input_ids = batch['input_ids'].to(device),
+                token_type_ids=batch['token_type_ids'].to(device),
+                attention_mask=batch['attention_mask'].to(device),
+                labels=batch['labels'].to(device)
             )
             logits = outputs.logits
             _, predict = torch.max(logits, dim=1)
 
-            correct += sum(predict == batch['labels']).item()  # type: ignore
+            correct += sum(predict == batch['labels'].to(device)).item()  # type: ignore
 
-        loss += outputs.loss.item() * input_len
+        loss += outputs.loss.item()
         val_examples += input_len
-    return loss / val_examples, correct / val_examples
+    return loss / len(eval_dataloader), correct / val_examples
 
 
 # Training Loss
 def calc_train_loss(   # Done
     args, model, optimizer, device, train_dataloader, eval_dataloader
-):
+):    
     model.train()
     num_all_pts = 0
     train_losses = []
@@ -506,14 +512,6 @@ def calc_train_loss(   # Done
     Path(stats_path).mkdir(parents=True, exist_ok=True)
 
     start_time = time.time()
-
-    # Accelerator
-    if args.accelerate:
-        model, optimizer, train_dataloader, eval_dataloader = accelerator.prepare(
-            model, optimizer, train_dataloader, eval_dataloader
-        )
-    else:
-        model.to(device)
 
     num_steps = args.epochs * len(train_dataloader)
 
@@ -532,11 +530,11 @@ def calc_train_loss(   # Done
         # Save WeightWatcher Metrics
         watcher = ww.WeightWatcher(model=model)
         ww_details = watcher.analyze(min_evals=10)
-        ww_details.to_csv(
-            os.path.join(stats_path, f"epoch_{epoch}.csv")
-        )
-
-        print(f"=====================> Epoch {epoch+1}/{args.epochs}")
+        
+        if not args.debug:
+            ww_details.to_csv(
+                os.path.join(stats_path, f"epoch_{epoch}.csv")
+            )
 
         if epoch == 0:
             # CHOOSING LAYERS TO TRAIN
@@ -575,49 +573,55 @@ def calc_train_loss(   # Done
                 if name in layer_to_train:
                     print(f"Enabling {name} parameter")
                     param.requires_grad = True
+        
+        print(f"===================================> Epoch {epoch+1}/{args.epochs}")
 
         # Training Loop
         for step, batch in enumerate(train_dataloader):
             optimizer.zero_grad()
             batch = batch.to(device)
             outputs = model(
-                **batch,
-                # input_ids = batch['input_ids'].to(device),
-                # token_type_ids=None,
-                # attention_mask=batch['attention_mask'].to(device),
-                # labels=batch['labels'].to(device),
+                # **batch,
+                input_ids = batch['input_ids'].to(device),
+                token_type_ids=batch['token_type_ids'].to(device),
+                attention_mask=batch['attention_mask'].to(device),
+                labels=batch['labels'].to(device),
             )
+            train_loss += outputs.loss.item()
             '''if args.accelerate:
                 accelerator.backward(outputs.loss)
             else:
                 outputs.loss.backward()'''
             outputs.loss.backward()
             optimizer.step()
-            train_loss += outputs.loss.item()
             tr_examples += len(batch['labels'])
             num_all_pts += len(batch['labels'])
             tr_steps += 1
             train_losses.append(train_loss / tr_steps)
-
-            # Saving Details of Frozen Layers
-            if step == 0:
-                freeze_dict = defaultdict(list)
-                for name, param in model.named_parameters():
-                    freeze_dict["name"].append(name)
-                    if param.grad is None:
-                        freeze_dict["freeze_layer"].append(True)
-                    elif torch.sum(param.grad.abs()).item() > 0:
-                        freeze_dict["freeze_layer"].append(False)
-                pd.DataFrame(freeze_dict).to_csv(
-                    os.path.join(stats_path, f"freeze_{epoch}.csv")
-                )
+            
+            if not args.debug:
+                # Saving Details of Frozen Layers
+                freeze_dict = None
+                if step in [0]:
+                    freeze_dict = defaultdict(list)
+                    for name, param in model.named_parameters():
+                        freeze_dict["name"].append(name)
+                        if param.grad is None:
+                            freeze_dict["freeze_layer"].append(True)
+                        elif torch.sum(param.grad.abs()).item() > 0:
+                            freeze_dict["freeze_layer"].append(False)
+                if freeze_dict is not None:
+                    pd.DataFrame(freeze_dict).to_csv(
+                        os.path.join(stats_path, f"freeze_{epoch}.csv")
+                    )
+            
             progress_bar.update(1)    
         time_elapsed = (time.time() - start_time) / 60
 
         # Validation Loss
         val_loss, val_acc = calc_val_loss(model, eval_dataloader, device)
         print(
-            f"Epoch: {epoch+1}/{args.epochs} | Time Elapsed: {time_elapsed:.2f} mins | Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.4f}"
+            f"Epoch: {epoch+1}/{args.epochs}|Elapsed: {time_elapsed:.2f} mins|Val Loss: {val_loss:.4f}|Val Acc: {val_acc:.4f}"
         )
         val_losses.append(val_loss)
         val_accs.append(val_acc)
@@ -649,9 +653,15 @@ def main():
     # model = get_model(args=args, num_labels=num_labels, device=device)
     optimizer = getOptim(model, vary_lyre=False, factor=1)
 
+    # Accelerator
+    if args.accelerate:
+        model, optimizer, train_dataloader, eval_dataloader = accelerator.prepare(
+            model, optimizer, train_dataloader, eval_dataloader
+        )
+    
     # Get Initial Validation Loss
     i_val_loss, i_val_acc = calc_val_loss(model, eval_dataloader, device)
-    print(f"Epoch 0: Val Loss: {i_val_loss:.2f} | Val Acc: {i_val_acc:.2f}")
+    print(f"\nEpoch 0 / {args.epochs} | Val Loss: {i_val_loss:.2f} | Val Acc: {i_val_acc:.2f}")
 
     # Get Training Loss
     train_loss, val_loss, val_acc = calc_train_loss(
@@ -671,12 +681,18 @@ def main():
         "val_acc_base": val_acc,
     }
 
-    # Save the data
-    Path(args.savepath).mkdir(parents=True, exist_ok=True)
-    np.save(
-        os.path.join(args.savepath, 
-                     'baseline.npy'
-                     ), base)  # type: ignore
+    if args.debug:
+        print("Debug Mode")
+        print("\nTrain Loss:", train_loss)
+        print("\nVal Loss:", val_loss)
+        print("\nVal Acc:", val_acc)
+    else:
+        # Save the data
+        Path(args.savepath).mkdir(parents=True, exist_ok=True)
+        np.save(
+            os.path.join(args.savepath, 
+                        'baseline.npy'
+                        ), base)  # type: ignore
 
 
 if __name__ == "__main__":

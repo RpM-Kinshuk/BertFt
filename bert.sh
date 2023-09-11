@@ -27,7 +27,8 @@ do
                 --add_layer_norm False \
                 --max_train_steps 1000 \
                 --grad_acc_steps 1 \
-                --accelerate True
+                --accelerate True \
+                --debug False
         done
     done
 done
