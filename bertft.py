@@ -1,4 +1,4 @@
-'''
+"""
 num_layers="0 1 2 3 4 5 6 8 10 12 18 24 30 36 72 74"
 task_list="cola mnli mrpc qnli qqp rte sst2 stsb wnli"
 alpha_list="True False"
@@ -20,7 +20,7 @@ do
                 --batch_size 32 \
                 --learning_rate "2e-5" \
                 --seed 5 \
-                --freeze_bert True \
+                --freeze True \
                 --num_layers "$layers" \
                 --alpha_ascending "$alpha" \
                 --slow_tokenizer True \
@@ -32,7 +32,7 @@ do
         done
     done
 done
-'''
+"""
 
 # Imports
 import argparse
@@ -63,8 +63,10 @@ from distutils.util import strtobool
 # import evaluate
 # from accelerate.logging import get_logger
 from accelerate import Accelerator
-import accelerate.utils
+
+# import accelerate.utils
 from datasets import load_dataset
+
 # from sklearn.model_selection import train_test_split
 
 # from torch.utils.data import TensorDataset
@@ -73,13 +75,16 @@ from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 import copy
 from transformers import (
-    # AutoModelForSequenceClassification,
+    AutoModelForSequenceClassification,
     BertTokenizer,
+    RobertaTokenizer,
     BertPreTrainedModel,
+    RobertaPreTrainedModel,
     BertModel,
-    # AutoTokenizer,
+    RobertaModel,
+    AutoTokenizer,
     DataCollatorWithPadding,
-    # AutoConfig,
+    AutoConfig,
     # PretrainedConfig,
     # SchedulerType,
     default_data_collator,
@@ -103,7 +108,12 @@ task_to_keys = {  # Done
 parser = argparse.ArgumentParser(description="BERT Fine-Tuning")
 
 # Parser Arguments and Defaults
-parser.add_argument("--savepath", type=str, default="/rscratch/tpang/kinshuk/RpMKin/bert_ft/models", help="")
+parser.add_argument(
+    "--savepath",
+    type=str,
+    default="/rscratch/tpang/kinshuk/RpMKin/bert_ft/models",
+    help="",
+)
 parser.add_argument("--epochs", type=int, default=20, help="")
 parser.add_argument("--model_name", type=str, default="bert-base-uncased", help="")
 parser.add_argument("--task_name", type=str, default="cola", help="")
@@ -112,7 +122,7 @@ parser.add_argument("--batch_size", type=int, default=32, help="")
 parser.add_argument("--learning_rate", type=float, default=2e-5, help="")
 parser.add_argument("--seed", type=int, default=5, help="")
 parser.add_argument(
-    "--freeze_bert",
+    "--freeze",
     type=lambda b: bool(strtobool(b)),
     nargs="?",
     const=False,
@@ -181,14 +191,14 @@ torch.manual_seed(args.seed)
 torch.cuda.manual_seed_all(args.seed)
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
-accelerate.utils.set_seed(args.seed)
+# accelerate.utils.set_seed(args.seed)
 set_seed(args.seed)  # transformers
 
-accelerator = Accelerator()
+# accelerator = Accelerator()
 
 
-# Model Architecture
-class BERTFT(BertPreTrainedModel):  # Done
+# BERT Model Architecture
+class BertFT(BertPreTrainedModel):  # Done
     """
     BERT Fine-Tuning on GLUE tasks
     """
@@ -212,13 +222,13 @@ class BERTFT(BertPreTrainedModel):  # Done
 
     def forward(
         self,
-        input_ids=None,
-        attention_mask=None,
-        token_type_ids=None,
-        position_ids=None,
-        head_mask=None,
-        inputs_embeds=None,
-        labels=None,
+        input_ids: Optional[torch.LongTensor] = None,
+        attention_mask: Optional[torch.FloatTensor] = None,
+        token_type_ids: Optional[torch.LongTensor] = None,
+        position_ids: Optional[torch.LongTensor] = None,
+        head_mask: Optional[torch.FloatTensor] = None,
+        inputs_embeds: Optional[torch.FloatTensor] = None,
+        labels: Optional[torch.LongTensor] = None,
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
@@ -297,6 +307,103 @@ class BERTFT(BertPreTrainedModel):  # Done
         )
 
 
+class RobertaFT(RobertaPreTrainedModel):
+    def __init__(self, config):
+        super().__init__(config)
+        self.num_labels = config.num_labels
+        self.config = config
+
+        self.roberta = RobertaModel(config, add_pooling_layer=True)
+        classifier_dropout = (
+            config.classifier_dropout
+            if config.classifier_dropout is not None
+            else config.hidden_dropout_prob
+        )
+        self.dropout = nn.Dropout(classifier_dropout)
+        self.new_layer = nn.Linear(config.hidden_size, config.hidden_size)
+        self.classifier = nn.Linear(config.hidden_size, config.num_labels)
+        self.relu = nn.ReLU()
+
+        # Initialize weights and apply final processing
+        self.post_init()
+
+    def forward(
+        self,
+        input_ids: Optional[torch.LongTensor] = None,
+        attention_mask: Optional[torch.FloatTensor] = None,
+        token_type_ids: Optional[torch.LongTensor] = None,
+        position_ids: Optional[torch.LongTensor] = None,
+        head_mask: Optional[torch.FloatTensor] = None,
+        inputs_embeds: Optional[torch.FloatTensor] = None,
+        labels: Optional[torch.LongTensor] = None,
+        output_attentions: Optional[bool] = None,
+        output_hidden_states: Optional[bool] = None,
+        return_dict: Optional[bool] = None,
+    ) -> Union[Tuple[torch.Tensor], SequenceClassifierOutput]:
+        r"""
+        labels (`torch.LongTensor` of shape `(batch_size,)`, *optional*):
+            Labels for computing the sequence classification/regression loss. Indices should be in `[0, ...,
+            config.num_labels - 1]`. If `config.num_labels == 1` a regression loss is computed (Mean-Square loss), If
+            `config.num_labels > 1` a classification loss is computed (Cross-Entropy).
+        """
+        return_dict = (
+            return_dict if return_dict is not None else self.config.use_return_dict
+        )
+
+        outputs = self.roberta(
+            input_ids,
+            attention_mask=attention_mask,
+            token_type_ids=token_type_ids,
+            position_ids=position_ids,
+            head_mask=head_mask,
+            inputs_embeds=inputs_embeds,
+            output_attentions=output_attentions,
+            output_hidden_states=output_hidden_states,
+            return_dict=return_dict,
+        )
+        pooled_output = outputs[1]
+        pooled_output = self.dropout(pooled_output)
+        intermediate_output = self.new_layer(pooled_output)
+        intermediate_output = self.relu(intermediate_output)
+        logits = self.classifier(intermediate_output)
+
+        loss = None
+        if labels is not None:
+            if self.config.problem_type is None:
+                if self.num_labels == 1:
+                    self.config.problem_type = "regression"
+                elif self.num_labels > 1 and (
+                    labels.dtype == torch.long or labels.dtype == torch.int
+                ):
+                    self.config.problem_type = "single_label_classification"
+                else:
+                    self.config.problem_type = "multi_label_classification"
+
+            if self.config.problem_type == "regression":
+                loss_fct = MSELoss()
+                if self.num_labels == 1:
+                    loss = loss_fct(logits.squeeze(), labels.squeeze())
+                else:
+                    loss = loss_fct(logits, labels)
+            elif self.config.problem_type == "single_label_classification":
+                loss_fct = CrossEntropyLoss()
+                loss = loss_fct(logits.view(-1, self.num_labels), labels.view(-1))
+            elif self.config.problem_type == "multi_label_classification":
+                loss_fct = BCEWithLogitsLoss()
+                loss = loss_fct(logits, labels)
+
+        if not return_dict:
+            output = (logits,) + outputs[2:]
+            return ((loss,) + output) if loss is not None else output
+
+        return SequenceClassifierOutput(
+            loss=loss,
+            logits=logits,
+            hidden_states=outputs.hidden_states,
+            attentions=outputs.attentions,
+        )
+
+
 # Custom training for Parameters
 def getCustomParams(model):  # Done
     new_params = []
@@ -328,14 +435,22 @@ def getOptim(model, vary_lyre=False, factor=1):  # Done
 
 # Model
 def get_model(args, num_labels):  # Done
-    model = BERTFT.from_pretrained(
-        args.model_name,
-        num_labels=num_labels,
-        # cache_dir=args.savepath,
-    )
+    model = None
+    if "bert" in args.model_name:
+        model = BertFT.from_pretrained(
+            args.model_name,
+            num_labels=num_labels,
+            # cache_dir=args.savepath,
+        )
+    elif "roberta" in args.model_name:
+        model = RobertaFT.from_pretrained(
+            args.model_name,
+            num_labels=num_labels,
+            # cache_dir=args.savepath,
+        )
     # If freeze_bert is true, freeze pre-trained layers
-    if args.freeze_bert:
-        print("Freezing BERT")
+    if args.freeze:
+        print(f"Freezing {args.model_name} Model")
         for name, param in model.named_parameters():  # type: ignore
             if "classifier" in name or "new_layer" in name:
                 param.requires_grad = True
@@ -343,7 +458,7 @@ def get_model(args, num_labels):  # Done
                 param.requires_grad = False
     # Else, unfreeze all layers
     else:
-        print("Defreezing BERT")
+        print(f"Defreezing {args.model_name} Model")
         for name, param in model.named_parameters():  # type: ignore
             param.requires_grad = True
     return model
@@ -384,7 +499,7 @@ def get_model_data(args):  # Done
     )
 
     model = get_model(args=args, num_labels=num_labels)
-    
+
     # Define keys for both inputs
     if args.task_name is not None:
         sentence1_key, sentence2_key = task_to_keys[args.task_name]
@@ -392,7 +507,7 @@ def get_model_data(args):  # Done
         sentence1_key, sentence2_key = "sentence1", "sentence2"
 
     label_to_id = None
-    
+
     # Set target padding
     padding = "max_length" if args.pad_to_max_length else False
 
@@ -400,12 +515,12 @@ def get_model_data(args):  # Done
         label_to_id = {v: i for i, v in enumerate(label_list)}
 
     if label_to_id is not None:
-        model.config.label2id = label_to_id # type: ignore
-        model.config.id2label = {id: label for label, id in label_to_id.items()} # type: ignore
+        model.config.label2id = label_to_id  # type: ignore
+        model.config.id2label = {id: label for label, id in label_to_id.items()}  # type: ignore
     elif args.task_name is not None and not is_regression:
-        model.config.label2id = {l: i for i, l in enumerate(label_list)} # type: ignore
-        model.config.id2label = {id: label for label, id in model.config.label2id.items()} # type: ignore
-    
+        model.config.label2id = {l: i for i, l in enumerate(label_list)}  # type: ignore
+        model.config.id2label = {id: label for label, id in model.config.label2id.items()}  # type: ignore
+
     # Preprocess Data
     def preprocess(input):
         texts = (
@@ -425,24 +540,25 @@ def get_model_data(args):  # Done
                 result["labels"] = input["label"]
         return result
 
-    if args.accelerate:
-        with accelerator.main_process_first():
-            processed_datasets = raw_datasets.map(
-                preprocess,
-                batched=True,
-                remove_columns=raw_datasets["train"].column_names,  # type: ignore
-                # desc="Running tokenizer on dataset",
-            )
-    else:
-        processed_datasets = raw_datasets.map(
-            preprocess,
-            batched=True,
-            remove_columns=raw_datasets["train"].column_names,  # type: ignore
-            # desc="Running tokenizer on dataset",
-        )
+    # if args.accelerate:
+    #     with accelerator.main_process_first():
+    #         processed_datasets = raw_datasets.map(
+    #             preprocess,
+    #             batched=True,
+    #             remove_columns=raw_datasets["train"].column_names,  # type: ignore
+    #             # desc="Running tokenizer on dataset",
+    #         )
+    # else:
+    processed_datasets = raw_datasets.map(
+        preprocess,
+        batched=True,
+        remove_columns=raw_datasets["train"].column_names,  # type: ignore
+        # desc="Running tokenizer on dataset",
+    )
 
     train_dataset = processed_datasets["train"]  # type: ignore
-    eval_dataset = processed_datasets["validation_matched"  # type: ignore
+    eval_dataset = processed_datasets[ # type: ignore
+        "validation_matched"
         if args.task_name == "mnli"
         else "validation"
     ]
@@ -478,19 +594,19 @@ def calc_val_loss(model, eval_dataloader, device):  # Done
     correct = 0
     model.eval()
     for step, batch in enumerate(eval_dataloader):
-        input_len = len(batch['input_ids'])
+        input_len = len(batch["input_ids"])
         with torch.no_grad():
             outputs = model(
                 # **batch,
-                input_ids = batch['input_ids'].to(device),
-                token_type_ids=batch['token_type_ids'].to(device),
-                attention_mask=batch['attention_mask'].to(device),
-                labels=batch['labels'].to(device)
+                input_ids=batch["input_ids"].to(device),
+                token_type_ids=batch["token_type_ids"].to(device),
+                attention_mask=batch["attention_mask"].to(device),
+                labels=batch["labels"].to(device),
             )
             logits = outputs.logits
             _, predict = torch.max(logits, dim=1)
 
-            correct += sum(predict == batch['labels'].to(device)).item()  # type: ignore
+            correct += sum(predict == batch["labels"].to(device)).item()  # type: ignore
 
         loss += outputs.loss.item()
         val_examples += input_len
@@ -498,16 +614,16 @@ def calc_val_loss(model, eval_dataloader, device):  # Done
 
 
 # Training Loss
-def calc_train_loss(   # Done
+def calc_train_loss(  # Done
     args, model, optimizer, device, train_dataloader, eval_dataloader
-):    
+):
     model.train()
     num_all_pts = 0
     train_losses = []
     val_losses = []
     val_accs = []
 
-    stats_path = os.path.join(args.savepath, 'stats')
+    stats_path = os.path.join(args.savepath, "stats")
     Path(stats_path).mkdir(parents=True, exist_ok=True)
 
     start_time = time.time()
@@ -520,7 +636,6 @@ def calc_train_loss(   # Done
     )
 
     for epoch in range(args.epochs):
-        
         model.train()
         train_loss = 0
         val_loss = 0
@@ -529,22 +644,21 @@ def calc_train_loss(   # Done
         # Save WeightWatcher Metrics
         watcher = ww.WeightWatcher(model=model)
         ww_details = watcher.analyze(min_evals=10)
-        
+
         if not args.debug:
-            ww_details.to_csv(
-                os.path.join(stats_path, f"epoch_{epoch}.csv")
-            )
+            ww_details.to_csv(os.path.join(stats_path, f"epoch_{epoch}.csv"))
 
         if epoch == 0:
             # CHOOSING LAYERS TO TRAIN
             filtered = ww_details[
-                ww_details["longname"].str.contains("new_layer|embeddings")==False
+                ww_details["longname"].str.contains("new_layer|embeddings") == False
             ]
             train_names = (
-                filtered.sort_values(
-                    by=["alpha"], 
-                    ascending=args.alpha_ascending
-                    )["longname"].iloc[:args.num_layers].to_list()
+                filtered.sort_values(by=["alpha"], ascending=args.alpha_ascending)[
+                    "longname"
+                ]
+                .iloc[: args.num_layers]
+                .to_list()
             )
             print("Training layers:", train_names)
 
@@ -572,7 +686,7 @@ def calc_train_loss(   # Done
                 if name in layer_to_train:
                     print(f"Enabling {name} parameter")
                     param.requires_grad = True
-        
+
         print(f"===================================> Epoch {epoch+1}/{args.epochs}")
 
         # Training Loop
@@ -580,23 +694,23 @@ def calc_train_loss(   # Done
             optimizer.zero_grad()
             outputs = model(
                 # **batch,
-                input_ids = batch['input_ids'].to(device),
-                token_type_ids=batch['token_type_ids'].to(device),
-                attention_mask=batch['attention_mask'].to(device),
-                labels=batch['labels'].to(device),
+                input_ids=batch["input_ids"].to(device),
+                token_type_ids=batch["token_type_ids"].to(device),
+                attention_mask=batch["attention_mask"].to(device),
+                labels=batch["labels"].to(device),
             )
             train_loss += outputs.loss.item()
-            '''if args.accelerate:
+            """if args.accelerate:
                 accelerator.backward(outputs.loss)
             else:
-                outputs.loss.backward()'''
+                outputs.loss.backward()"""
             outputs.loss.backward()
             optimizer.step()
-            tr_examples += len(batch['labels'])
-            num_all_pts += len(batch['labels'])
+            tr_examples += len(batch["labels"])
+            num_all_pts += len(batch["labels"])
             tr_steps += 1
             train_losses.append(train_loss / tr_steps)
-            
+
             if not args.debug:
                 # Saving Details of Frozen Layers
                 freeze_dict = None
@@ -612,8 +726,8 @@ def calc_train_loss(   # Done
                     pd.DataFrame(freeze_dict).to_csv(
                         os.path.join(stats_path, f"freeze_{epoch}.csv")
                     )
-            
-            progress_bar.update(1)    
+
+            progress_bar.update(1)
         time_elapsed = (time.time() - start_time) / 60
 
         # Validation Loss
@@ -629,21 +743,20 @@ def calc_train_loss(   # Done
 
 # Main
 def main():
-    
-    print(f'\n\n\nTask to finetune: {args.task_name}\n\n\n')
-    print(f'alpha Decreasing: {not args.alpha_ascending}\n\n\n')
-    print(f'Layers to train: {args.num_layers}\n\n\n')
+    print(f"\n\n\nTask to finetune: {args.task_name}\n\n\n")
+    print(f"alpha Decreasing: {not args.alpha_ascending}\n\n\n")
+    print(f"Layers to train: {args.num_layers}\n\n\n")
     # Accelerator
     device = None
-    if args.accelerate:
-        device = accelerator.device
+
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+    elif torch.backends.mps.is_available():
+        device = torch.device("mps")
     else:
-        if torch.cuda.is_available():
-            device = torch.device("cuda")
-        elif torch.backends.mps.is_available():
-            device = torch.device("mps")
-        else:
-            device = torch.device("cpu")
+        device = torch.device("cpu")
+    # if args.accelerate:
+    #     device = accelerator.device
 
     # Get Data
     model, train_dataloader, eval_dataloader = get_model_data(args)
@@ -656,14 +769,16 @@ def main():
     optimizer = getOptim(model, vary_lyre=False, factor=1)
 
     # Accelerator
-    if args.accelerate:
-        model, optimizer, train_dataloader, eval_dataloader = accelerator.prepare(
-            model, optimizer, train_dataloader, eval_dataloader
-        )
-    
+    # if args.accelerate:
+    #     model, optimizer, train_dataloader, eval_dataloader = accelerator.prepare(
+    #         model, optimizer, train_dataloader, eval_dataloader
+    #     )
+
     # Get Initial Validation Loss
     i_val_loss, i_val_acc = calc_val_loss(model, eval_dataloader, device)
-    print(f"\nEpoch 0/{args.epochs} | Val Loss: {i_val_loss:.2f} | Val Acc: {i_val_acc:.2f}")
+    print(
+        f"\nEpoch 0/{args.epochs} | Val Loss: {i_val_loss:.2f} | Val Acc: {i_val_acc:.2f}"
+    )
 
     # Get Training Loss
     train_loss, val_loss, val_acc = calc_train_loss(
@@ -692,10 +807,7 @@ def main():
     else:
         # Save the data
         Path(args.savepath).mkdir(parents=True, exist_ok=True)
-        np.save(
-            os.path.join(args.savepath, 
-                        'baseline.npy'
-                        ), base)  # type: ignore
+        np.save(os.path.join(args.savepath, "baseline.npy"), base)  # type: ignore
 
 
 if __name__ == "__main__":

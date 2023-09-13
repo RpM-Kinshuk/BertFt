@@ -1,7 +1,8 @@
 num_layers="0 1 2 3 4 5 6 8 10 12 18 24 30 36 72 74"
-task_list="cola mnli mrpc qnli qqp rte sst2 stsb wnli"
+task_list="mrpc qnli qqp rte sst2 stsb wnli"
 alpha_list="True False"
 laynorm="False"
+model="bert-base-uncased"
 batch_size=32
 
 for task in $task_list
@@ -14,13 +15,13 @@ do
             OMP_NUM_THREADS=1 CUDA_VISIBLE_DEVICES=0 python bertft.py \
                 --savepath "$save_path" \
                 --epochs 3 \
-                --model_name bert-base-uncased \
+                --model_name $model \
                 --task_name "$task" \
                 --max_length 128 \
                 --batch_size $batch_size \
                 --learning_rate "2e-5" \
                 --seed 7 \
-                --freeze_bert True \
+                --freeze True \
                 --num_layers "$layers" \
                 --alpha_ascending "$alpha" \
                 --slow_tokenizer True \
