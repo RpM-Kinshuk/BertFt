@@ -767,7 +767,7 @@ def main():
     # model = get_model(args=args, num_labels=num_labels, device=device)
     optimizer = getOptim(model, vary_lyre=False, factor=1)
 
-    Accelerator
+    # Accelerator
     if args.accelerate:
         model, optimizer, train_dataloader, eval_dataloader = accelerator.prepare(
             model, optimizer, train_dataloader, eval_dataloader
