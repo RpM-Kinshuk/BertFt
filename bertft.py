@@ -64,7 +64,7 @@ from distutils.util import strtobool
 # from accelerate.logging import get_logger
 from accelerate import Accelerator
 
-# import accelerate.utils
+import accelerate.utils
 from datasets import load_dataset
 
 # from sklearn.model_selection import train_test_split
@@ -191,10 +191,10 @@ torch.manual_seed(args.seed)
 torch.cuda.manual_seed_all(args.seed)
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
-# accelerate.utils.set_seed(args.seed)
+accelerate.utils.set_seed(args.seed)
 set_seed(args.seed)  # transformers
 
-# accelerator = Accelerator()
+accelerator = Accelerator()
 
 
 # BERT Model Architecture
@@ -540,21 +540,21 @@ def get_model_data(args):  # Done
                 result["labels"] = input["label"]
         return result
 
-    # if args.accelerate:
-    #     with accelerator.main_process_first():
-    #         processed_datasets = raw_datasets.map(
-    #             preprocess,
-    #             batched=True,
-    #             remove_columns=raw_datasets["train"].column_names,  # type: ignore
-    #             # desc="Running tokenizer on dataset",
-    #         )
-    # else:
-    processed_datasets = raw_datasets.map(
-        preprocess,
-        batched=True,
-        remove_columns=raw_datasets["train"].column_names,  # type: ignore
-        # desc="Running tokenizer on dataset",
-    )
+    if args.accelerate:
+        with accelerator.main_process_first():
+            processed_datasets = raw_datasets.map(
+                preprocess,
+                batched=True,
+                remove_columns=raw_datasets["train"].column_names,  # type: ignore
+                # desc="Running tokenizer on dataset",
+            )
+    else:
+        processed_datasets = raw_datasets.map(
+            preprocess,
+            batched=True,
+            remove_columns=raw_datasets["train"].column_names,  # type: ignore
+            # desc="Running tokenizer on dataset",
+        )
 
     train_dataset = processed_datasets["train"]  # type: ignore
     eval_dataset = processed_datasets[ # type: ignore
@@ -700,11 +700,10 @@ def calc_train_loss(  # Done
                 labels=batch["labels"].to(device),
             )
             train_loss += outputs.loss.item()
-            """if args.accelerate:
+            if args.accelerate:
                 accelerator.backward(outputs.loss)
             else:
-                outputs.loss.backward()"""
-            outputs.loss.backward()
+                outputs.loss.backward()
             optimizer.step()
             tr_examples += len(batch["labels"])
             num_all_pts += len(batch["labels"])
@@ -755,8 +754,8 @@ def main():
         device = torch.device("mps")
     else:
         device = torch.device("cpu")
-    # if args.accelerate:
-    #     device = accelerator.device
+    if args.accelerate:
+        device = accelerator.device
 
     # Get Data
     model, train_dataloader, eval_dataloader = get_model_data(args)
@@ -768,11 +767,11 @@ def main():
     # model = get_model(args=args, num_labels=num_labels, device=device)
     optimizer = getOptim(model, vary_lyre=False, factor=1)
 
-    # Accelerator
-    # if args.accelerate:
-    #     model, optimizer, train_dataloader, eval_dataloader = accelerator.prepare(
-    #         model, optimizer, train_dataloader, eval_dataloader
-    #     )
+    Accelerator
+    if args.accelerate:
+        model, optimizer, train_dataloader, eval_dataloader = accelerator.prepare(
+            model, optimizer, train_dataloader, eval_dataloader
+        )
 
     # Get Initial Validation Loss
     i_val_loss, i_val_acc = calc_val_loss(model, eval_dataloader, device)
