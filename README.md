@@ -1,16 +1,19 @@
 # BertFt
 
-This research project explores different methods of fine-tuning the pre-trained Google BERT model on various datasets from the General Language Understanding Evaluation (GLUE) benchmark.
+This research project explores different methods of fine-tuning the pre-trained <I>Google BERT model</I> on various datasets from the <I>General Language Understanding Evaluation (GLUE)</I> benchmark.
 <br> <br>
 The project also highlights the variations in performance observed over different training layers of the model.
-<br> <br>
+<br>
 The results obtained thus far are new to the academia and have not been obtained before.
-
+<br>
+Model chosen to obtain the results is the <I>bert-base</I> model and the tokenizer used is the <I>BERT Tokenizer</I>  from <I>HuggingFace Transformers</I>.
+<br><br>
 Following are the choices of hyperparameters used: <br>
-learning_rate = 2e-5 <br>
+<b>learning_rate = 2e-5 <br>
 batch_size = 32 <br>
-optimizer = ADAMW <br>
-padding = max_length
+epochs = 2 <br>
+optimizer = <I>ADAMW</I> <br>
+padding = max_length</b>
 
 <h3> CoLA </h2>
 
