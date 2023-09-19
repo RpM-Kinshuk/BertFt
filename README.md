@@ -55,13 +55,13 @@ laynorm="False"
 model="bert-base-uncased"
 batch_size=32
 
-for task in $task_list
-do
-    for alpha in $alpha_list
-    do
-        for layers in $num_layers
-        do
-            save_path="YOUR_SAVE_PATh"
+for task in $task_list <br>
+do <br>
+    for alpha in $alpha_list <br>
+    do <br>
+        for layers in $num_layers <br>
+        do <br>
+            save_path="YOUR_SAVE_PATH" <br>
             OMP_NUM_THREADS=1 CUDA_VISIBLE_DEVICES=0 python bertft.py \
                 --savepath "$save_path" \
                 --epochs 3 \
@@ -80,7 +80,7 @@ do
                 --max_train_steps 1000 \
                 --grad_acc_steps 1 \
                 --accelerate False \
-                --debug False
-        done
-    done
-done
+                --debug False <br>
+        done <br>
+    done <br>
+done <br>
