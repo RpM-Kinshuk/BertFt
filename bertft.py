@@ -70,7 +70,7 @@ from datasets import load_dataset
 # from sklearn.model_selection import train_test_split
 
 # from torch.utils.data import TensorDataset
-
+from transformers.utils import logging
 from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 import copy
@@ -91,7 +91,7 @@ from transformers import (
     set_seed,
     # get_scheduler,
 )
-
+logging.set_verbosity_error()
 # Keys for GLUE Tasks
 task_to_keys = {  # Done
     "cola": ("sentence", None),
