@@ -62,8 +62,8 @@ from distutils.util import strtobool
 # import datasets
 # import evaluate
 # from accelerate.logging import get_logger
-# from accelerate import Accelerator
-# import accelerate.utils
+from accelerate import Accelerator
+import accelerate.utils
 
 from datasets import load_dataset
 
@@ -117,10 +117,12 @@ parser.add_argument(
 parser.add_argument("--epochs", type=int, default=20, help="")
 parser.add_argument("--model_name", type=str, default="bert-base-uncased", help="")
 parser.add_argument("--task_name", type=str, default="cola", help="")
-parser.add_argument("--max_length", type=int, default=512, help="")
+parser.add_argument("--sortby", type=str, default="alpha", 
+                    help="Use either of [alpha, layer, random]")
+parser.add_argument("--max_length", type=int, default=128, help="")
 parser.add_argument("--batch_size", type=int, default=32, help="")
 parser.add_argument("--learning_rate", type=float, default=2e-5, help="")
-parser.add_argument("--seed", type=int, default=5, help="")
+parser.add_argument("--seed", type=int, default=7, help="")
 parser.add_argument(
     "--freeze",
     type=lambda b: bool(strtobool(b)),
@@ -151,7 +153,7 @@ parser.add_argument(
     type=lambda b: bool(strtobool(b)),
     nargs="?",
     const=False,
-    default=False,
+    default=True,
     help="",
 )
 parser.add_argument("--max_train_steps", type=int, default=1000, help="")
@@ -173,11 +175,11 @@ parser.add_argument(
     help="",
 )
 parser.add_argument(
-    "--random_train",
+    "--verbose",
     type=lambda b: bool(strtobool(b)),
     nargs="?",
     const=False,
-    default=False,
+    default=True,
     help="",
 )
 parser.add_argument(
@@ -192,7 +194,8 @@ parser.add_argument(
 args = parser.parse_args()
 
 # Control randomness
-print("SEED:", args.seed)
+if args.verbose:
+    print("SEED:", args.seed)
 random.seed(args.seed)
 np.random.seed(args.seed)
 torch.manual_seed(args.seed)
@@ -202,8 +205,7 @@ torch.backends.cudnn.benchmark = False
 # accelerate.utils.set_seed(args.seed)
 set_seed(args.seed)  # transformers
 
-# accelerator = Accelerator()
-
+accelerator = Accelerator()
 
 # BERT Model Architecture
 class BertFT(BertPreTrainedModel):  # Done
@@ -448,17 +450,20 @@ def get_model(args, num_labels):  # Done
         model = BertFT.from_pretrained(
             args.model_name,
             num_labels=num_labels,
+            problem_type="regression" if args.task_name == "stsb" else "single_label_classification",
             # cache_dir=args.savepath,
         )
     elif "roberta" in args.model_name:
         model = RobertaFT.from_pretrained(
             args.model_name,
             num_labels=num_labels,
+            problem_type="regression" if args.task_name == "stsb" else "single_label_classification",
             # cache_dir=args.savepath,
         )
     # If freeze_bert is true, freeze pre-trained layers
     if args.freeze:
-        print(f"Freezing {args.model_name} Model")
+        if args.verbose:
+            print(f"Freezing {args.model_name} Model")
         for name, param in model.named_parameters():  # type: ignore
             if "classifier" in name or "new_layer" in name:
                 param.requires_grad = True
@@ -466,7 +471,8 @@ def get_model(args, num_labels):  # Done
                 param.requires_grad = False
     # Else, unfreeze all layers
     else:
-        print(f"Defreezing {args.model_name} Model")
+        if args.verbose:
+            print(f"Defreezing {args.model_name} Model")
         for name, param in model.named_parameters():  # type: ignore
             param.requires_grad = True
     return model
@@ -570,9 +576,9 @@ def get_model_data(args):  # Done
         if args.task_name == "mnli"
         else "validation"
     ]
-
-    for index in random.sample(range(len(train_dataset)), 3):
-        print(f"Sample {index} of train set: {train_dataset[index]}")
+    if args.verbose:
+        for index in random.sample(range(len(train_dataset)), 3):
+            print(f"Sample {index} of train set: {train_dataset[index]}")
 
     if args.pad_to_max_length:
         data_collator = default_data_collator
@@ -595,7 +601,7 @@ def get_model_data(args):  # Done
     return model, train_dataloader, eval_dataloader
 
 
-# Validation Loss
+# Validation Loss (Classification)
 def calc_val_loss(model, eval_dataloader, device):  # Done
     loss = 0
     val_examples = 0
@@ -618,6 +624,8 @@ def calc_val_loss(model, eval_dataloader, device):  # Done
 
         loss += outputs.loss.item()
         val_examples += input_len
+    if args.task_name == "stsb":
+        return loss / len(eval_dataloader), 0
     return loss / len(eval_dataloader), correct / val_examples
 
 
@@ -640,7 +648,7 @@ def calc_train_loss(  # Done
 
     progress_bar = tqdm(
         range(num_steps),
-        # disable=not accelerator.is_local_main_process
+        disable=not args.verbose,
     )
 
     for epoch in range(args.epochs):
@@ -661,17 +669,24 @@ def calc_train_loss(  # Done
             filtered = ww_details[
                 ww_details["longname"].str.contains("new_layer|embeddings") == False
             ]
-            if args.random_train:
+            if "random" in (args.sortby).lower():
                 train_names = random.sample(filtered["longname"].to_list(), args.num_layers)
             else:
+                sortby = "alpha"
+                if "alpha" in (args.sortby).lower():
+                    sortby = "alpha"
+                elif "layer" in (args.sortby).lower():
+                    sortby = "layer_id"
                 train_names = (
-                    filtered.sort_values(by=["layer_id"], ascending=args.alpha_ascending)[
+                    filtered.sort_values(by=[sortby], ascending=args.alpha_ascending)[
                         "longname"
                     ]
                     .iloc[: args.num_layers]
                     .to_list()
                 )
-            print("Training layers:", train_names)
+            if args.verbose:
+                print("Sorted by ", args.sortby)    
+                print("Training layers:", train_names)
 
             layer_to_train = []
 
@@ -695,11 +710,12 @@ def calc_train_loss(  # Done
 
             for name, param in model.named_parameters():
                 if name in layer_to_train:
-                    print(f"Enabling {name} parameter")
+                    if args.verbose:
+                        print(f"Enabling {name} parameter")
                     param.requires_grad = True
-
-        print(f"===================================> Epoch {epoch+1}/{args.epochs}")
-
+        
+        if args.verbose:
+            print(f"===================================> Epoch {epoch+1}/{args.epochs}")
         # Training Loop
         for step, batch in enumerate(train_dataloader):
             optimizer.zero_grad()
@@ -737,15 +753,13 @@ def calc_train_loss(  # Done
                     pd.DataFrame(freeze_dict).to_csv(
                         os.path.join(stats_path, f"freeze_{epoch}.csv")
                     )
-
             progress_bar.update(1)
         time_elapsed = (time.time() - start_time) / 60
 
         # Validation Loss
         val_loss, val_acc = calc_val_loss(model, eval_dataloader, device)
-        print(
-            f"\nEpoch: {epoch+1}/{args.epochs}|Elapsed: {time_elapsed:.2f} mins|Val Loss: {val_loss:.4f}|Val Acc: {val_acc:.4f}"
-        )
+        if args.verbose:
+            print(f"\nEpoch: {epoch+1}/{args.epochs}|Elapsed: {time_elapsed:.2f} mins|Val Loss: {val_loss:.4f}|Val Acc: {val_acc:.4f}")
         val_losses.append(val_loss)
         val_accs.append(val_acc)
 
@@ -754,9 +768,12 @@ def calc_train_loss(  # Done
 
 # Main
 def main():
-    print(f"\n\n\nTask to finetune: {args.task_name}\n\n\n")
-    print(f"alpha Decreasing: {not args.alpha_ascending}\n\n\n")
-    print(f"Layers to train: {args.num_layers}\n\n\n")
+    if args.verbose:
+        task_info = f"\n\n\nTask to finetune: {args.task_name}\n\n\n" \
+                    + f"alpha Decreasing: {not args.alpha_ascending}\n\n\n" \
+                    + f"Layers to train: {args.num_layers}\n\n\n" \
+                    + f"Train randomly: {'random' in args.sortby.lower()}\n\n\n"
+        print(task_info)
     # Accelerator
     device = None
 
@@ -772,8 +789,10 @@ def main():
     # Get Data
     model, train_dataloader, eval_dataloader = get_model_data(args)
     model.to(device)  # type: ignore
-    print(f"Training data size: {len(train_dataloader)}")
-    print(f"Validation data size: {len(eval_dataloader)}")
+    
+    if args.verbose:
+        print(f"Training data size: {len(train_dataloader)}")
+        print(f"Validation data size: {len(eval_dataloader)}")
 
     # Get Model and Optimizer
     # model = get_model(args=args, num_labels=num_labels, device=device)
@@ -787,9 +806,10 @@ def main():
 
     # Get Initial Validation Loss
     i_val_loss, i_val_acc = calc_val_loss(model, eval_dataloader, device)
-    print(
-        f"\nEpoch 0/{args.epochs} | Val Loss: {i_val_loss:.2f} | Val Acc: {i_val_acc:.2f}"
-    )
+    if args.verbose:
+        print(
+            f"\nEpoch 0/{args.epochs} | Val Loss: {i_val_loss:.2f} | Val Acc: {i_val_acc:.2f}"
+        )
 
     # Get Training Loss
     train_loss, val_loss, val_acc = calc_train_loss(
