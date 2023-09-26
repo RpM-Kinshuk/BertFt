@@ -62,9 +62,9 @@ from distutils.util import strtobool
 # import datasets
 # import evaluate
 # from accelerate.logging import get_logger
-from accelerate import Accelerator
+# from accelerate import Accelerator
+# import accelerate.utils
 
-import accelerate.utils
 from datasets import load_dataset
 
 # from sklearn.model_selection import train_test_split
@@ -111,7 +111,7 @@ parser = argparse.ArgumentParser(description="BERT Fine-Tuning")
 parser.add_argument(
     "--savepath",
     type=str,
-    default="/rscratch/tpang/kinshuk/RpMKin/bert_ft/models",
+    default="/rscratch/tpang/kinshuk/RpMKin/misc/models",
     help="",
 )
 parser.add_argument("--epochs", type=int, default=20, help="")
@@ -173,6 +173,14 @@ parser.add_argument(
     help="",
 )
 parser.add_argument(
+    "--random_train",
+    type=lambda b: bool(strtobool(b)),
+    nargs="?",
+    const=False,
+    default=False,
+    help="",
+)
+parser.add_argument(
     "--debug",
     type=lambda b: bool(strtobool(b)),
     nargs="?",
@@ -191,10 +199,10 @@ torch.manual_seed(args.seed)
 torch.cuda.manual_seed_all(args.seed)
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
-accelerate.utils.set_seed(args.seed)
+# accelerate.utils.set_seed(args.seed)
 set_seed(args.seed)  # transformers
 
-accelerator = Accelerator()
+# accelerator = Accelerator()
 
 
 # BERT Model Architecture
@@ -307,7 +315,7 @@ class BertFT(BertPreTrainedModel):  # Done
         )
 
 
-class RobertaFT(RobertaPreTrainedModel):
+class RobertaFT(RobertaPreTrainedModel): # Done
     def __init__(self, config):
         super().__init__(config)
         self.num_labels = config.num_labels
@@ -478,13 +486,13 @@ def get_model_data(args):  # Done
     label_list = []
     # Load Raw Data and find num_labels
     if args.task_name is not None:
-        raw_datasets = load_dataset("glue", args.task_name)
+        raw_datasets = load_dataset("glue", args.task_name, cache_dir = "/rscratch/tpang/kinshuk/cache")
         is_regression = args.task_name == "stsb"
         if not is_regression:
             label_list = raw_datasets["train"].features["label"].names  # type: ignore
             num_labels = len(label_list)
     else:
-        raw_datasets = load_dataset("glue", "all")
+        raw_datasets = load_dataset("glue", "all", cache_dir = "/rscratch/tpang/kinshuk/cache")
         is_regression = raw_datasets["train"].features["label"].dtype in ["float32", "float64"]  # type: ignore
         if not is_regression:
             label_list = raw_datasets["train"].unique("label")  # type: ignore
@@ -540,21 +548,21 @@ def get_model_data(args):  # Done
                 result["labels"] = input["label"]
         return result
 
-    if args.accelerate:
-        with accelerator.main_process_first():
-            processed_datasets = raw_datasets.map(
-                preprocess,
-                batched=True,
-                remove_columns=raw_datasets["train"].column_names,  # type: ignore
-                # desc="Running tokenizer on dataset",
-            )
-    else:
-        processed_datasets = raw_datasets.map(
-            preprocess,
-            batched=True,
-            remove_columns=raw_datasets["train"].column_names,  # type: ignore
-            # desc="Running tokenizer on dataset",
-        )
+    # if args.accelerate:
+    #     with accelerator.main_process_first():
+    #         processed_datasets = raw_datasets.map(
+    #             preprocess,
+    #             batched=True,
+    #             remove_columns=raw_datasets["train"].column_names,  # type: ignore
+    #             # desc="Running tokenizer on dataset",
+    #         )
+    # else:
+    processed_datasets = raw_datasets.map(
+        preprocess,
+        batched=True,
+        remove_columns=raw_datasets["train"].column_names,  # type: ignore
+        # desc="Running tokenizer on dataset",
+    )
 
     train_dataset = processed_datasets["train"]  # type: ignore
     eval_dataset = processed_datasets[ # type: ignore
@@ -653,13 +661,16 @@ def calc_train_loss(  # Done
             filtered = ww_details[
                 ww_details["longname"].str.contains("new_layer|embeddings") == False
             ]
-            train_names = (
-                filtered.sort_values(by=["alpha"], ascending=args.alpha_ascending)[
-                    "longname"
-                ]
-                .iloc[: args.num_layers]
-                .to_list()
-            )
+            if args.random_train:
+                train_names = random.sample(filtered["longname"].to_list(), args.num_layers)
+            else:
+                train_names = (
+                    filtered.sort_values(by=["layer_id"], ascending=args.alpha_ascending)[
+                        "longname"
+                    ]
+                    .iloc[: args.num_layers]
+                    .to_list()
+                )
             print("Training layers:", train_names)
 
             layer_to_train = []
@@ -700,10 +711,11 @@ def calc_train_loss(  # Done
                 labels=batch["labels"].to(device),
             )
             train_loss += outputs.loss.item()
-            if args.accelerate:
-                accelerator.backward(outputs.loss)
-            else:
-                outputs.loss.backward()
+            # if args.accelerate:
+            #     accelerator.backward(outputs.loss)
+            # else:
+            #     outputs.loss.backward()
+            outputs.loss.backward()
             optimizer.step()
             tr_examples += len(batch["labels"])
             num_all_pts += len(batch["labels"])
@@ -754,8 +766,8 @@ def main():
         device = torch.device("mps")
     else:
         device = torch.device("cpu")
-    if args.accelerate:
-        device = accelerator.device
+    # if args.accelerate:
+    #     device = accelerator.device
 
     # Get Data
     model, train_dataloader, eval_dataloader = get_model_data(args)
@@ -768,10 +780,10 @@ def main():
     optimizer = getOptim(model, vary_lyre=False, factor=1)
 
     # Accelerator
-    if args.accelerate:
-        model, optimizer, train_dataloader, eval_dataloader = accelerator.prepare(
-            model, optimizer, train_dataloader, eval_dataloader
-        )
+    # if args.accelerate:
+    #     model, optimizer, train_dataloader, eval_dataloader = accelerator.prepare(
+    #         model, optimizer, train_dataloader, eval_dataloader
+    #     )
 
     # Get Initial Validation Loss
     i_val_loss, i_val_acc = calc_val_loss(model, eval_dataloader, device)
