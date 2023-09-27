@@ -70,7 +70,7 @@ from datasets import load_dataset
 # from sklearn.model_selection import train_test_split
 
 # from torch.utils.data import TensorDataset
-from transformers.utils import logging
+
 from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 import copy
@@ -91,7 +91,7 @@ from transformers import (
     set_seed,
     # get_scheduler,
 )
-logging.set_verbosity_error()
+
 # Keys for GLUE Tasks
 task_to_keys = {  # Done
     "cola": ("sentence", None),
@@ -669,14 +669,18 @@ def calc_train_loss(  # Done
             filtered = ww_details[
                 ww_details["longname"].str.contains("new_layer|embeddings") == False
             ]
+            sortby = "alpha"
+            if args.num_layers > len(filtered):
+                args.num_layers = len(filtered)
             if "random" in (args.sortby).lower():
                 train_names = random.sample(filtered["longname"].to_list(), args.num_layers)
             else:
-                sortby = "alpha"
                 if "alpha" in (args.sortby).lower():
                     sortby = "alpha"
                 elif "layer" in (args.sortby).lower():
                     sortby = "layer_id"
+                else:
+                    sortby = "random"
                 train_names = (
                     filtered.sort_values(by=[sortby], ascending=args.alpha_ascending)[
                         "longname"
@@ -685,7 +689,7 @@ def calc_train_loss(  # Done
                     .to_list()
                 )
             if args.verbose:
-                print("Sorted by ", args.sortby)    
+                print("Sorted by ", sortby)    
                 print("Training layers:", train_names)
 
             layer_to_train = []
@@ -829,7 +833,7 @@ def main():
         "val_acc_base": val_acc,
     }
 
-    if args.debug:
+    if args.debug and args.verbose:
         print("\n->Debug Mode<-")
         print("\nTrain Loss:")
         print(*[train_loss[i] for i in range(0, len(train_loss), args.batch_size)])
