@@ -206,6 +206,8 @@ torch.backends.cudnn.benchmark = False
 set_seed(args.seed)  # transformers
 
 accelerator = Accelerator()
+from transformers.utils import logging
+logging.set_verbosity_error()
 
 # BERT Model Architecture
 class BertFT(BertPreTrainedModel):  # Done
