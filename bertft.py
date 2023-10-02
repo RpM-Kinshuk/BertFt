@@ -19,10 +19,13 @@ do
                 --max_length 512 \
                 --batch_size 32 \
                 --learning_rate "2e-5" \
-                --seed 5 \
+                --seed 7 \
                 --freeze True \
+                --sortby alpha \
                 --num_layers "$layers" \
                 --alpha_ascending "$alpha" \
+                --verbose False \
+                --debug False \
                 --slow_tokenizer True \
                 --pad_to_max_length False \
                 --add_layer_norm False \
@@ -117,8 +120,9 @@ parser.add_argument(
 parser.add_argument("--epochs", type=int, default=20, help="")
 parser.add_argument("--model_name", type=str, default="bert-base-uncased", help="")
 parser.add_argument("--task_name", type=str, default="cola", help="")
-parser.add_argument("--sortby", type=str, default="alpha", 
-                    help="Use either of [alpha, layer, random]")
+parser.add_argument(
+    "--sortby", type=str, default="alpha", help="Use either of [alpha, layer, random]"
+)
 parser.add_argument("--max_length", type=int, default=128, help="")
 parser.add_argument("--batch_size", type=int, default=32, help="")
 parser.add_argument("--learning_rate", type=float, default=2e-5, help="")
@@ -206,8 +210,14 @@ torch.backends.cudnn.benchmark = False
 set_seed(args.seed)  # transformers
 
 accelerator = Accelerator()
-from transformers.utils import logging
-logging.set_verbosity_error()
+
+if not args.verbose:
+    from transformers.utils import logging
+    logging.set_verbosity_error()
+    from datasets.utils.logging import set_verbosity_error
+    set_verbosity_error()
+    global _tqdm_active 
+    _tqdm_active = False 
 
 # BERT Model Architecture
 class BertFT(BertPreTrainedModel):  # Done
@@ -319,7 +329,7 @@ class BertFT(BertPreTrainedModel):  # Done
         )
 
 
-class RobertaFT(RobertaPreTrainedModel): # Done
+class RobertaFT(RobertaPreTrainedModel):  # Done
     def __init__(self, config):
         super().__init__(config)
         self.num_labels = config.num_labels
@@ -418,6 +428,14 @@ class RobertaFT(RobertaPreTrainedModel): # Done
 
 # Custom training for Parameters
 def getCustomParams(model):  # Done
+    """_summary_
+
+    Args:
+        model (_type_): _description_
+
+    Returns:
+        _type_: _description_
+    """    
     new_params = []
     pre_trained = []
     for name, val in model.named_parameters():
@@ -430,6 +448,16 @@ def getCustomParams(model):  # Done
 
 # Optimizer
 def getOptim(model, vary_lyre=False, factor=1):  # Done
+    """_summary_
+
+    Args:
+        model (_type_): _description_
+        vary_lyre (bool, optional): _description_. Defaults to False.
+        factor (int, optional): _description_. Defaults to 1.
+
+    Returns:
+        _type_: _description_
+    """    
     if vary_lyre:
         new_params, pre_params = getCustomParams(model)
         return torch.optim.AdamW(
@@ -447,19 +475,32 @@ def getOptim(model, vary_lyre=False, factor=1):  # Done
 
 # Model
 def get_model(args, num_labels):  # Done
+    """_summary_
+
+    Args:
+        args (_type_): _description_
+        num_labels (_type_): _description_
+
+    Returns:
+        _type_: _description_
+    """    
     model = None
     if "bert" in args.model_name:
         model = BertFT.from_pretrained(
             args.model_name,
             num_labels=num_labels,
-            problem_type="regression" if args.task_name == "stsb" else "single_label_classification",
+            problem_type="regression"
+            if args.task_name == "stsb"
+            else "single_label_classification",
             # cache_dir=args.savepath,
         )
     elif "roberta" in args.model_name:
         model = RobertaFT.from_pretrained(
             args.model_name,
             num_labels=num_labels,
-            problem_type="regression" if args.task_name == "stsb" else "single_label_classification",
+            problem_type="regression"
+            if args.task_name == "stsb"
+            else "single_label_classification",
             # cache_dir=args.savepath,
         )
     # If freeze_bert is true, freeze pre-trained layers
@@ -482,6 +523,14 @@ def get_model(args, num_labels):  # Done
 
 # Copy Model Parameters
 def get_model_params(model):  # Done
+    """_summary_
+
+    Args:
+        model (_type_): _description_
+
+    Returns:
+        _type_: _description_
+    """    
     params = {}
     for name in model.state_dict():
         params[name] = copy.deepcopy(model.state_dict()[name])
@@ -490,17 +539,29 @@ def get_model_params(model):  # Done
 
 # Get GLUE Train and Eval Dataloaders
 def get_model_data(args):  # Done
+    """_summary_
+
+    Args:
+        args (_type_): _description_
+
+    Returns:
+        _type_: _description_
+    """    
     num_labels = 1
     label_list = []
     # Load Raw Data and find num_labels
     if args.task_name is not None:
-        raw_datasets = load_dataset("glue", args.task_name, cache_dir = "/rscratch/tpang/kinshuk/cache")
+        raw_datasets = load_dataset(
+            "glue", args.task_name, cache_dir="/rscratch/tpang/kinshuk/cache"
+        )
         is_regression = args.task_name == "stsb"
         if not is_regression:
             label_list = raw_datasets["train"].features["label"].names  # type: ignore
             num_labels = len(label_list)
     else:
-        raw_datasets = load_dataset("glue", "all", cache_dir = "/rscratch/tpang/kinshuk/cache")
+        raw_datasets = load_dataset(
+            "glue", "all", cache_dir="/rscratch/tpang/kinshuk/cache"
+        )
         is_regression = raw_datasets["train"].features["label"].dtype in ["float32", "float64"]  # type: ignore
         if not is_regression:
             label_list = raw_datasets["train"].unique("label")  # type: ignore
@@ -539,6 +600,14 @@ def get_model_data(args):  # Done
 
     # Preprocess Data
     def preprocess(input):
+        """_summary_
+
+        Args:
+            input (_type_): _description_
+
+        Returns:
+            _type_: _description_
+        """        
         texts = (
             (input[sentence1_key],)
             if sentence2_key is None
@@ -573,10 +642,8 @@ def get_model_data(args):  # Done
     )
 
     train_dataset = processed_datasets["train"]  # type: ignore
-    eval_dataset = processed_datasets[ # type: ignore
-        "validation_matched"
-        if args.task_name == "mnli"
-        else "validation"
+    eval_dataset = processed_datasets[  # type: ignore
+        "validation_matched" if args.task_name == "mnli" else "validation"
     ]
     if args.verbose:
         for index in random.sample(range(len(train_dataset)), 3):
@@ -605,6 +672,16 @@ def get_model_data(args):  # Done
 
 # Validation Loss (Classification)
 def calc_val_loss(model, eval_dataloader, device):  # Done
+    """_summary_
+
+    Args:
+        model (_type_): _description_
+        eval_dataloader (_type_): _description_
+        device (_type_): _description_
+
+    Returns:
+        _type_: _description_
+    """    
     loss = 0
     val_examples = 0
     correct = 0
@@ -635,6 +712,18 @@ def calc_val_loss(model, eval_dataloader, device):  # Done
 def calc_train_loss(  # Done
     args, model, optimizer, device, train_dataloader, eval_dataloader
 ):
+    """_summary_
+
+    Args:
+        model (_type_): _description_
+        optimizer (_type_): _description_
+        device (_type_): _description_
+        train_dataloader (_type_): _description_
+        eval_dataloader (_type_): _description_
+
+    Returns:
+        _type_: _description_
+    """    
     model.train()
     num_all_pts = 0
     train_losses = []
@@ -675,7 +764,9 @@ def calc_train_loss(  # Done
             if args.num_layers > len(filtered):
                 args.num_layers = len(filtered)
             if "random" in (args.sortby).lower():
-                train_names = random.sample(filtered["longname"].to_list(), args.num_layers)
+                train_names = random.sample(
+                    filtered["longname"].to_list(), args.num_layers
+                )
             else:
                 if "alpha" in (args.sortby).lower():
                     sortby = "alpha"
@@ -691,7 +782,7 @@ def calc_train_loss(  # Done
                     .to_list()
                 )
             if args.verbose:
-                print("Sorted by ", sortby)    
+                print("Sorted by ", sortby)
                 print("Training layers:", train_names)
 
             layer_to_train = []
@@ -719,7 +810,7 @@ def calc_train_loss(  # Done
                     if args.verbose:
                         print(f"Enabling {name} parameter")
                     param.requires_grad = True
-        
+
         if args.verbose:
             print(f"===================================> Epoch {epoch+1}/{args.epochs}")
         # Training Loop
@@ -765,7 +856,9 @@ def calc_train_loss(  # Done
         # Validation Loss
         val_loss, val_acc = calc_val_loss(model, eval_dataloader, device)
         if args.verbose:
-            print(f"\nEpoch: {epoch+1}/{args.epochs}|Elapsed: {time_elapsed:.2f} mins|Val Loss: {val_loss:.4f}|Val Acc: {val_acc:.4f}")
+            print(
+                f"\nEpoch: {epoch+1}/{args.epochs}|Elapsed: {time_elapsed:.2f} mins|Val Loss: {val_loss:.4f}|Val Acc: {val_acc:.4f}"
+            )
         val_losses.append(val_loss)
         val_accs.append(val_acc)
 
@@ -775,10 +868,12 @@ def calc_train_loss(  # Done
 # Main
 def main():
     if args.verbose:
-        task_info = f"\n\n\nTask to finetune: {args.task_name}\n\n\n" \
-                    + f"alpha Decreasing: {not args.alpha_ascending}\n\n\n" \
-                    + f"Layers to train: {args.num_layers}\n\n\n" \
-                    + f"Train randomly: {'random' in args.sortby.lower()}\n\n\n"
+        task_info = (
+            f"\n\n\nTask to finetune: {args.task_name}\n\n\n"
+            + f"alpha Decreasing: {not args.alpha_ascending}\n\n\n"
+            + f"Layers to train: {args.num_layers}\n\n\n"
+            + f"Train randomly: {'random' in args.sortby.lower()}\n\n\n"
+        )
         print(task_info)
     # Accelerator
     device = None
@@ -795,7 +890,7 @@ def main():
     # Get Data
     model, train_dataloader, eval_dataloader = get_model_data(args)
     model.to(device)  # type: ignore
-    
+
     if args.verbose:
         print(f"Training data size: {len(train_dataloader)}")
         print(f"Validation data size: {len(eval_dataloader)}")
