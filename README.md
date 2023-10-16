@@ -11,7 +11,7 @@ Model chosen to obtain the results is the <I>bert-base</I> model and the tokeniz
 Following are the choices of hyperparameters used: <br>
 <b>learning_rate = 2e-5 <br>
 batch_size = 32 <br>
-epochs = 2 <br>
+epochs = 3 <br>
 optimizer = <I>ADAMW</I> <br>
 padding = max_length</b>
 
