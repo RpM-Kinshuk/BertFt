@@ -219,6 +219,8 @@ if not args.verbose:
     global _tqdm_active 
     _tqdm_active = False 
 
+os.environ['TRANSFORMERS_CACHE']='/rscratch/tpang/kinshuk/cache'
+
 # BERT Model Architecture
 class BertFT(BertPreTrainedModel):  # Done
     """
