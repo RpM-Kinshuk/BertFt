@@ -211,15 +211,21 @@ set_seed(args.seed)  # transformers
 
 accelerator = Accelerator()
 
-if not args.verbose:
-    from transformers.utils import logging
-    logging.set_verbosity_error()
-    from datasets.utils.logging import set_verbosity_error
-    set_verbosity_error()
-    global _tqdm_active 
-    _tqdm_active = False 
+from transformers.utils.logging import (
+    set_verbosity_error as transformers_set_verbosity_error,
+)
+from datasets.utils.logging import (
+    set_verbosity_error as datasets_set_verbosity_error,
+)
 
-os.environ['TRANSFORMERS_CACHE']='/rscratch/tpang/kinshuk/cache'
+if not args.verbose:
+    transformers_set_verbosity_error()
+    datasets_set_verbosity_error()
+    global _tqdm_active
+    _tqdm_active = False
+
+os.environ["TRANSFORMERS_CACHE"] = "/rscratch/tpang/kinshuk/cache"
+
 
 # BERT Model Architecture
 class BertFT(BertPreTrainedModel):  # Done
@@ -437,7 +443,7 @@ def getCustomParams(model):  # Done
 
     Returns:
         _type_: _description_
-    """    
+    """
     new_params = []
     pre_trained = []
     for name, val in model.named_parameters():
@@ -459,7 +465,7 @@ def getOptim(model, vary_lyre=False, factor=1):  # Done
 
     Returns:
         _type_: _description_
-    """    
+    """
     if vary_lyre:
         new_params, pre_params = getCustomParams(model)
         return torch.optim.AdamW(
@@ -485,7 +491,7 @@ def get_model(args, num_labels):  # Done
 
     Returns:
         _type_: _description_
-    """    
+    """
     model = None
     if "bert" in args.model_name:
         model = BertFT.from_pretrained(
@@ -532,7 +538,7 @@ def get_model_params(model):  # Done
 
     Returns:
         _type_: _description_
-    """    
+    """
     params = {}
     for name in model.state_dict():
         params[name] = copy.deepcopy(model.state_dict()[name])
@@ -548,7 +554,7 @@ def get_model_data(args):  # Done
 
     Returns:
         _type_: _description_
-    """    
+    """
     num_labels = 1
     label_list = []
     # Load Raw Data and find num_labels
@@ -609,7 +615,7 @@ def get_model_data(args):  # Done
 
         Returns:
             _type_: _description_
-        """        
+        """
         texts = (
             (input[sentence1_key],)
             if sentence2_key is None
@@ -683,7 +689,7 @@ def calc_val_loss(model, eval_dataloader, device):  # Done
 
     Returns:
         _type_: _description_
-    """    
+    """
     loss = 0
     val_examples = 0
     correct = 0
@@ -725,7 +731,7 @@ def calc_train_loss(  # Done
 
     Returns:
         _type_: _description_
-    """    
+    """
     model.train()
     num_all_pts = 0
     train_losses = []
