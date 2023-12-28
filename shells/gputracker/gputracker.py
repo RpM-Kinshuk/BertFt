@@ -13,10 +13,12 @@ import numpy as np
 import gpustat
 import logging
 import itertools
+from torch.cuda import max_memory_allocated, reset_peak_memory_stats
 
 exitFlag = 0
 GPU_MEMORY_THRESHOLD = 500 # MB?
-AVAILABLE_GPUS = [0, 1, 2, 3]   #[0, 1, 2, 3, 4, 5, 6, 7]
+# AVAILABLE_GPUS = [0, 1, 2, 3, 4, 5, 6, 7]
+AVAILABLE_GPUS = [0, 1, 2]
 MAX_NCHECK=10              # number of checks to know if gpu free
 
 ## If we need to wait for the entire clean cluster to start, select False here
@@ -24,8 +26,17 @@ MAX_NCHECK=10              # number of checks to know if gpu free
 all_empty = {"ind": True}
 #all_empty = {"ind": False}
 
+
+# NEW
+occupied_gpus = []
+
+# NEW
+def mark_occupied(gpu_id):
+    global occupied_gpus
+    occupied_gpus.append(gpu_id)
+
+
 def num_available_GPUs(gpus):
-    
     sum_i = 0
     for i, stat in enumerate(gpus):
         if stat['memory.used'] < 100:
@@ -52,15 +63,21 @@ def get_free_gpu_indices(logger):
         
         max_checks = 0
         max_gpu_id = -1
+        
         for i, stat in enumerate(stats.gpus):
             memory_used = stat['memory.used']
-            if memory_used < GPU_MEMORY_THRESHOLD and i in AVAILABLE_GPUS:
+            
+            # NEW
+            if memory_used < GPU_MEMORY_THRESHOLD and i in AVAILABLE_GPUS and i not in occupied_gpus:
+            # if memory_used < GPU_MEMORY_THRESHOLD and i in AVAILABLE_GPUS:
                 if i not in counter:
                     counter.update({i: 0})
                 else:
                     counter[i] = counter[i] + 1
                 ###Multiple Check available to avoid some accident 
                 if counter[i] >= MAX_NCHECK:
+                    # NEW
+                    mark_occupied(i)
                     return i
             else:
                 counter.update({i: 0})
@@ -69,7 +86,7 @@ def get_free_gpu_indices(logger):
                 max_checks = counter[i]
                 max_gpu_id = i
 
-        print(f"Waiting on GPUs, Checking {max_checks}/{MAX_NCHECK} at gpu {max_gpu_id}")
+        # logger.info(f"Waiting on GPUs, Checking {max_checks}/{MAX_NCHECK} at gpu {max_gpu_id}")
         time.sleep(10)
 
         
@@ -85,8 +102,6 @@ class DispatchThread(threading.Thread):
         AVAILABLE_GPUS = gpu_list
         global MAX_NCHECK
         MAX_NCHECK = maxcheck
-
-        
 
     def run(self):
         self.logger.info("Starting " + self.name)
@@ -132,13 +147,19 @@ class ChildThread(threading.Thread):
         bash_command = self.bash_command
 
         self.logger.info(f'executing {bash_command} on GPU: {self.cuda_device}')
+        reset_peak_memory_stats(device=self.cuda_device)
         # ACTIVATE
         os.system(bash_command)
         import time
         import random
         time.sleep(random.random() % 5)
+        
+        # NEW
+        occupied_gpus.remove(self.cuda_device)
+        peek_memory = max_memory_allocated(device=self.cuda_device)
 
-        self.logger.info("Finishing " + self.name)      
+        self.logger.info("Finishing " + self.name)
+        self.logger.info(f"GPU {self.cuda_device}: Peak Memory usage: {peek_memory}")
 
 
 def get_logger(path, fname):
