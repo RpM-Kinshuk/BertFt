@@ -1,63 +1,66 @@
 import itertools
+
+from numpy import sort
+from sklearn.neighbors import sort_graph_by_row_values
 from gputracker.gputracker import get_logger, DispatchThread
+from torch.cuda import max_memory_allocated, empty_cache
+import os
 
 gpus = list(range(8))
-train_layers = [0, 1, 2, 3, 4, 5, 6, 8, 10, 12, 18, 24, 30, 36, 72, 74, 80]
-task_list = ['cola', 'mnli', 'mrpc', 'qnli', 'qqp', 'rte', 'sst2', 'stsb', 'wnli']
+# gpus  = [5, 6, 7]
+train_layers = [0, 1, 2, 3, 4, 5, 6, 8, 10, 12, 18, 24, 30, 36, 72, 74]
+task_list = ['cola', 'mnli', 'mrpc', 'qnli', 'qqp', 'rte', 'sst2', 'stsb']
 
 model = "bert-base-uncased"
 ascending_order = ["True", "False"]
 
 norm = "False"
 freeze_bert = "True"
-train_seed_lst = [3, 5, 7]
-seed = 7
+train_seed_lst = [5, 6, 7]
+seed = 18
 max_length = 128
 batch_size = 32
 epochs = 3
-
-task = "cola"
-
 logger = get_logger('log', 'schedule_subspace.log')
 
 grid = list(
     itertools.product(
-        ascending_order, train_layers)
+        task_list,
+        ascending_order, 
+        train_layers,)
 )
 BASH_COMMAND_LIST = []
+task = "cola"
+sortby = "alpha"
+order  = "True"
 
-for order, layers in grid:
+for task, order, layers in grid:
     
-    save_path = "/rscratch/tpang/kinshuk/RpMKin/bert_ft" + \
-        f"/task_{task}/lay_norm_{norm}/alpha_asc_{order}/layers_{layers}/lr2e-5_epoch3_bs{batch_size}/"
+    save_path = "/rscratch/tpang/kinshuk/RpMKin/bert_ft/GLUE" + \
+        f"/trainseed_{seed}/task_{task}/lay_norm_{norm}/{sortby}_asc_{order}/layers_{layers}/lr2e-5_epoch3_bs{batch_size}/"
 
-    cmd = "OMP_NUM_THREADS=1 python bertft.py " + \
+    cmd = "OMP_NUM_THREADS=1 python /rscratch/tpang/kinshuk/RpMKin/bert_ft/bertft.py " + \
         f"--savepath {save_path} " + \
         f"--epochs {epochs} " + \
         f"--model_name {model} " + \
         f"--task_name {task} " + \
-        f"--max_length {max_length} " + \
+        f"--sortby {sortby} " + \
+        f"--alpha_ascending {order} " + \
         f"--batch_size {batch_size} " + \
         f"--learning_rate 2e-5 " + \
         f"--seed {seed} " + \
-        f"--freeze_bert {freeze_bert} " + \
         f"--num_layers {layers} " + \
-        f"--alpha_ascending {order} " + \
-        f"--slow_tokenizer True " + \
-        f"--pad_to_max_length True " + \
-        f"--add_layer_norm {norm} " + \
-        f"--max_train_steps 1000 " + \
-        f"--grad_acc_steps 1 " + \
-        f"--accelerate False " + \
+        f"--verbose False " + \
         f"--debug False"
         
     BASH_COMMAND_LIST.append(cmd)
 
+
 dispatch_thread = DispatchThread(
-    "synthetic dataset training",
+    "GLUE dataset training",
     BASH_COMMAND_LIST,
     logger,
-    gpu_m_th=1000,
+    gpu_m_th=50,
     gpu_list=gpus,
     maxcheck=0,
 )
