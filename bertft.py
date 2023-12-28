@@ -1,4 +1,4 @@
-# Refer bert.sh OR shells/kinexp.py for running the code
+# Refer shells/run_exp.py to run the code
 
 # Imports
 import argparse
@@ -70,6 +70,17 @@ task_to_keys = {  # Done
     "stsb": ("sentence1", "sentence2"),
     "wnli": ("sentence1", "sentence2"),
 }
+
+# task_to_keys = {  # Done
+#     "boolq": ("question", "passage"),
+#     "cb": ("premise", "hypothesis"),
+#     "copa": ("premise", "choice1"),
+#     "multirc": ("paragraph", "question"),
+#     "record": ("passage", "query"),
+#     "rte": ("premise", "hypothesis"),
+#     "wic": ("sentence1", "sentence2"),
+#     "wsc": ("text", "span1_text"),
+# }
 
 parser = argparse.ArgumentParser(description="BERT Fine-Tuning")
 
@@ -187,7 +198,7 @@ if not args.verbose:
     global _tqdm_active
     _tqdm_active = False
 
-os.environ["TRANSFORMERS_CACHE"] = "/rscratch/tpang/kinshuk/cache"
+os.environ['TRANSFORMERS_CACHE']='/rscratch/tpang/kinshuk/cache'
 
 
 # BERT Model Architecture
@@ -406,7 +417,7 @@ def getCustomParams(model):  # Done
 
     Returns:
         _type_: _description_
-    """
+    """    
     new_params = []
     pre_trained = []
     for name, val in model.named_parameters():
@@ -428,7 +439,7 @@ def getOptim(model, vary_lyre=False, factor=1):  # Done
 
     Returns:
         _type_: _description_
-    """
+    """    
     if vary_lyre:
         new_params, pre_params = getCustomParams(model)
         return torch.optim.AdamW(
@@ -454,7 +465,7 @@ def get_model(args, num_labels):  # Done
 
     Returns:
         _type_: _description_
-    """
+    """    
     model = None
     if "bert" in args.model_name:
         model = BertFT.from_pretrained(
@@ -501,7 +512,7 @@ def get_model_params(model):  # Done
 
     Returns:
         _type_: _description_
-    """
+    """    
     params = {}
     for name in model.state_dict():
         params[name] = copy.deepcopy(model.state_dict()[name])
@@ -517,7 +528,7 @@ def get_model_data(args):  # Done
 
     Returns:
         _type_: _description_
-    """
+    """    
     num_labels = 1
     label_list = []
     # Load Raw Data and find num_labels
@@ -578,7 +589,7 @@ def get_model_data(args):  # Done
 
         Returns:
             _type_: _description_
-        """
+        """        
         texts = (
             (input[sentence1_key],)
             if sentence2_key is None
@@ -652,7 +663,7 @@ def calc_val_loss(model, eval_dataloader, device):  # Done
 
     Returns:
         _type_: _description_
-    """
+    """    
     loss = 0
     val_examples = 0
     correct = 0
@@ -694,7 +705,7 @@ def calc_train_loss(  # Done
 
     Returns:
         _type_: _description_
-    """
+    """    
     model.train()
     num_all_pts = 0
     train_losses = []
@@ -822,6 +833,8 @@ def calc_train_loss(  # Done
                         os.path.join(stats_path, f"freeze_{epoch}.csv")
                     )
             progress_bar.update(1)
+            if step >= 0.1 * len(train_dataloader) and args.task_name == 'wnli':
+                break
         time_elapsed = (time.time() - start_time) / 60
 
         # Validation Loss
