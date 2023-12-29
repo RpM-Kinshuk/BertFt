@@ -13,8 +13,8 @@ import numpy as np
 import gpustat
 import logging
 import itertools
-from torch.cuda import max_memory_allocated, reset_peak_memory_stats
-
+# from torch.cuda import max_memory_allocated, reset_peak_memory_stats, reset_max_memory_allocated, memory_allocated
+# from torch.cuda import init as torch_cuda_init
 exitFlag = 0
 GPU_MEMORY_THRESHOLD = 500 # MB?
 # AVAILABLE_GPUS = [0, 1, 2, 3, 4, 5, 6, 7]
@@ -142,12 +142,14 @@ class ChildThread(threading.Thread):
         self.logger = logger
 
     def run(self):
+        # torch_cuda_init()
         # os.environ['CUDA_VISIBLE_DEVICES'] = f'{self.cuda_device[0]},{self.cuda_device[1]}'
         os.environ['CUDA_VISIBLE_DEVICES'] = f'{self.cuda_device}'
         bash_command = self.bash_command
 
         self.logger.info(f'executing {bash_command} on GPU: {self.cuda_device}')
-        reset_peak_memory_stats(device=self.cuda_device)
+        # reset_max_memory_allocated(device=self.cuda_device)
+        # start_memory = memory_allocated(device=self.cuda_device)
         # ACTIVATE
         os.system(bash_command)
         import time
@@ -156,10 +158,12 @@ class ChildThread(threading.Thread):
         
         # NEW
         occupied_gpus.remove(self.cuda_device)
-        peek_memory = max_memory_allocated(device=self.cuda_device)
+        # end_memory = memory_allocated(device=self.cuda_device)
+        # peek_memory = max_memory_allocated(device=self.cuda_device)
 
-        self.logger.info("Finishing " + self.name)
-        self.logger.info(f"GPU {self.cuda_device}: Peak Memory usage: {peek_memory}")
+        # self.logger.info(f"\n\nGPU {self.cuda_device}: Memory usage before: {start_memory} bytes, Memory usage after: {end_memory} bytes")
+        # self.logger.info(f"\nGPU {self.cuda_device}: Peak Memory usage: {peek_memory}")
+        self.logger.info("Finishing " + self.name + "\n\n")
 
 
 def get_logger(path, fname):
