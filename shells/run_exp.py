@@ -3,8 +3,6 @@ import itertools
 from numpy import sort
 from sklearn.neighbors import sort_graph_by_row_values
 from gputracker.gputracker import get_logger, DispatchThread
-from torch.cuda import max_memory_allocated, empty_cache
-import os
 
 gpus = list(range(8))
 # gpus  = [5, 6, 7]
@@ -13,11 +11,12 @@ task_list = ['cola', 'mnli', 'mrpc', 'qnli', 'qqp', 'rte', 'sst2', 'stsb']
 
 model = "bert-base-uncased"
 ascending_order = ["True", "False"]
+sortby = ["alpha", "layer"]
 
 norm = "False"
 freeze_bert = "True"
 train_seed_lst = [5, 6, 7]
-seed = 18
+seed = 42
 max_length = 128
 batch_size = 32
 epochs = 3
@@ -26,32 +25,34 @@ logger = get_logger('log', 'schedule_subspace.log')
 grid = list(
     itertools.product(
         task_list,
-        ascending_order, 
+        sortby,
+        # ascending_order, 
         train_layers,)
 )
 BASH_COMMAND_LIST = []
 task = "cola"
-sortby = "alpha"
-order  = "True"
+sby = "alpha"
+order  = "False"
 
-for task, order, layers in grid:
+for task, sby, layers in grid:
     
     save_path = "/rscratch/tpang/kinshuk/RpMKin/bert_ft/GLUE" + \
-        f"/trainseed_{seed}/task_{task}/lay_norm_{norm}/{sortby}_asc_{order}/layers_{layers}/lr2e-5_epoch3_bs{batch_size}/"
+        f"/trainseed_{seed}/task_{task}/lay_norm_{norm}/{sby}_asc_{order}/layers_{layers}/lr2e-5_epoch3_bs{batch_size}/"
 
     cmd = "OMP_NUM_THREADS=1 python /rscratch/tpang/kinshuk/RpMKin/bert_ft/bertft.py " + \
         f"--savepath {save_path} " + \
         f"--epochs {epochs} " + \
         f"--model_name {model} " + \
         f"--task_name {task} " + \
-        f"--sortby {sortby} " + \
+        f"--sortby {sby} " + \
         f"--alpha_ascending {order} " + \
         f"--batch_size {batch_size} " + \
         f"--learning_rate 2e-5 " + \
         f"--seed {seed} " + \
         f"--num_layers {layers} " + \
         f"--verbose False " + \
-        f"--debug False"
+        f"--debug False " + \
+        f"--memlog False"
         
     BASH_COMMAND_LIST.append(cmd)
 
