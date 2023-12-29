@@ -1,5 +1,3 @@
-# Refer shells/run_exp.py to run the code
-
 # Imports
 import argparse
 import random
@@ -10,6 +8,13 @@ import torch.backends.mps
 
 import torch.nn as nn
 from torch.nn import BCEWithLogitsLoss, CrossEntropyLoss, MSELoss
+from torch.cuda import (
+    max_memory_allocated,
+    reset_peak_memory_stats,
+    reset_max_memory_allocated,
+    memory_allocated,
+)
+
 from transformers.modeling_outputs import SequenceClassifierOutput
 
 import pandas as pd
@@ -17,7 +22,8 @@ import weightwatcher as ww
 import time
 import os
 
-# import logging
+import logging
+import sys
 from pathlib import Path
 from collections import defaultdict
 from typing import Optional, Tuple, Union
@@ -168,7 +174,14 @@ parser.add_argument(
     default=True,
     help="",
 )
-
+parser.add_argument(
+    "--memlog",
+    type=lambda b: bool(strtobool(b)),
+    nargs="?",
+    const=False,
+    default=False,
+    help="",
+)
 args = parser.parse_args()
 
 # Control randomness
@@ -198,7 +211,11 @@ if not args.verbose:
     global _tqdm_active
     _tqdm_active = False
 
-os.environ['TRANSFORMERS_CACHE']='/rscratch/tpang/kinshuk/cache'
+os.environ["TRANSFORMERS_CACHE"] = "/rscratch/tpang/kinshuk/cache"
+cuda_device = torch.cuda.current_device()
+reset_peak_memory_stats(device=cuda_device)
+reset_max_memory_allocated(device=cuda_device)
+start_memory = memory_allocated(device=cuda_device)
 
 
 # BERT Model Architecture
@@ -417,7 +434,7 @@ def getCustomParams(model):  # Done
 
     Returns:
         _type_: _description_
-    """    
+    """
     new_params = []
     pre_trained = []
     for name, val in model.named_parameters():
@@ -439,7 +456,7 @@ def getOptim(model, vary_lyre=False, factor=1):  # Done
 
     Returns:
         _type_: _description_
-    """    
+    """
     if vary_lyre:
         new_params, pre_params = getCustomParams(model)
         return torch.optim.AdamW(
@@ -465,7 +482,7 @@ def get_model(args, num_labels):  # Done
 
     Returns:
         _type_: _description_
-    """    
+    """
     model = None
     if "bert" in args.model_name:
         model = BertFT.from_pretrained(
@@ -512,7 +529,7 @@ def get_model_params(model):  # Done
 
     Returns:
         _type_: _description_
-    """    
+    """
     params = {}
     for name in model.state_dict():
         params[name] = copy.deepcopy(model.state_dict()[name])
@@ -528,7 +545,7 @@ def get_model_data(args):  # Done
 
     Returns:
         _type_: _description_
-    """    
+    """
     num_labels = 1
     label_list = []
     # Load Raw Data and find num_labels
@@ -589,7 +606,7 @@ def get_model_data(args):  # Done
 
         Returns:
             _type_: _description_
-        """        
+        """
         texts = (
             (input[sentence1_key],)
             if sentence2_key is None
@@ -663,7 +680,7 @@ def calc_val_loss(model, eval_dataloader, device):  # Done
 
     Returns:
         _type_: _description_
-    """    
+    """
     loss = 0
     val_examples = 0
     correct = 0
@@ -705,7 +722,7 @@ def calc_train_loss(  # Done
 
     Returns:
         _type_: _description_
-    """    
+    """
     model.train()
     num_all_pts = 0
     train_losses = []
@@ -833,8 +850,8 @@ def calc_train_loss(  # Done
                         os.path.join(stats_path, f"freeze_{epoch}.csv")
                     )
             progress_bar.update(1)
-            if step >= 0.1 * len(train_dataloader) and args.task_name == 'wnli':
-                break
+            # if step >= 0.1 * len(train_dataloader) and args.task_name == 'wnli':
+            #     break
         time_elapsed = (time.time() - start_time) / 60
 
         # Validation Loss
@@ -849,6 +866,27 @@ def calc_train_loss(  # Done
     return train_losses, val_losses, val_accs
 
 
+def get_logger(path, fname):
+    if not os.path.exists(path):
+        os.mkdir(path)
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
+    file_log_handler = logging.FileHandler(
+        os.path.join(path, fname), mode="a"
+    )  # 'a' for append
+    stderr_log_handler = logging.StreamHandler(sys.stdout)
+    logger.addHandler(file_log_handler)
+    logger.addHandler(stderr_log_handler)
+    formatter = logging.Formatter(
+        "%(asctime)s;%(levelname)s;%(message)s", "%Y-%m-%d %H:%M:%S"
+    )
+    file_log_handler.setFormatter(formatter)
+    stderr_log_handler.setFormatter(formatter)
+    sys.stdout.flush()
+
+    return logger
+
+
 # Main
 def main():
     if args.verbose:
@@ -859,6 +897,18 @@ def main():
             + f"Train randomly: {'random' in args.sortby.lower()}\n\n\n"
         )
         print(task_info)
+
+    log_info = (
+        f"\n\n{args.task_name} "
+        + f"{args.num_layers} Layers "
+        + f"{args.sortby} "
+        + f"ascending {args.alpha_ascending}"
+    )
+    if not args.verbose:
+        transformers_set_verbosity_error()
+        datasets_set_verbosity_error()
+        global _tqdm_active
+        _tqdm_active = False
     # Accelerator
     device = None
 
@@ -913,6 +963,19 @@ def main():
         "val_loss_base": val_loss,
         "val_acc_base": val_acc,
     }
+
+    if args.memlog:
+        end_memory = memory_allocated(device=cuda_device)
+        peek_memory = max_memory_allocated(device=cuda_device)
+        mempath = f"/rscratch/tpang/kinshuk/RpMKin/bert_ft/GLUE/trainseed_{args.seed}" + \
+                f"/task_{args.task_name}/{args.sortby}_asc_{args.alpha_ascending}"
+        Path(mempath).mkdir(parents=True, exist_ok=True)
+        logger = get_logger(mempath, "memlog.log")
+        logger.info(log_info)
+        logger.info(
+            f"\nMemory usage before: {start_memory} bytes\nMemory usage after: {int((end_memory/1024)/1024)}MB"
+        )
+        logger.info(f"\nPeak Memory usage: {int((peek_memory/1024)/1024)}MB\n\n")
 
     if args.debug and args.verbose:
         print("\n->Debug Mode<-")
