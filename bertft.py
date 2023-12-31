@@ -5,7 +5,7 @@ import numpy as np
 import torch
 import torch.backends.cudnn
 import torch.backends.mps
-
+from peft import get_peft_model, LoraConfig, TaskType # type: ignore
 import torch.nn as nn
 from torch.nn import BCEWithLogitsLoss, CrossEntropyLoss, MSELoss
 from torch.cuda import (
@@ -484,7 +484,7 @@ def get_model(args, num_labels):  # Done
         _type_: _description_
     """
     model = None
-    if "bert" in args.model_name:
+    if "bert" in args.model_name.lower():
         model = BertFT.from_pretrained(
             args.model_name,
             num_labels=num_labels,
@@ -493,7 +493,7 @@ def get_model(args, num_labels):  # Done
             else "single_label_classification",
             # cache_dir=args.savepath,
         )
-    elif "roberta" in args.model_name:
+    elif "roberta" in args.model_name.lower():
         model = RobertaFT.from_pretrained(
             args.model_name,
             num_labels=num_labels,
@@ -502,6 +502,7 @@ def get_model(args, num_labels):  # Done
             else "single_label_classification",
             # cache_dir=args.savepath,
         )
+    
     # If freeze_bert is true, freeze pre-trained layers
     if args.freeze:
         if args.verbose:
@@ -517,6 +518,22 @@ def get_model(args, num_labels):  # Done
             print(f"Defreezing {args.model_name} Model")
         for name, param in model.named_parameters():  # type: ignore
             param.requires_grad = True
+    
+    # Get the LoRA injected model
+    if 'autolora' in args.sortby.lower():
+        lora_config = LoraConfig(
+            task_type= TaskType.SEQ_CLS, #optional
+            inference_mode = False,
+            r = 1,
+            lora_alpha = 1,
+            lora_dropout = 0.05,
+            bias = "none",
+            # target_modules (Union[List[str],str])
+            # layers_to_transform (Union[List[int],int]) 
+            #layers_pattern (str)
+        )
+        lora_model = get_peft_model(model, lora_config) # type: ignore
+        return lora_model
     return model
 
 
@@ -747,17 +764,18 @@ def calc_train_loss(  # Done
         val_loss = 0
         tr_examples, tr_steps = 0, 0
 
-        # Save WeightWatcher Metrics
-        watcher = ww.WeightWatcher(model=model)
-        ww_details = watcher.analyze(min_evals=10)
+        if 'lora' not in args.sortby.lower():
+            # Save WeightWatcher Metrics
+            watcher = ww.WeightWatcher(model=model)
+            ww_details = watcher.analyze(min_evals=10)
 
-        if not args.debug:
-            ww_details.to_csv(os.path.join(stats_path, f"epoch_{epoch}.csv"))
+        if not args.debug and 'lora' not in args.sortby.lower():
+            ww_details.to_csv(os.path.join(stats_path, f"epoch_{epoch}.csv")) # type: ignore
 
-        if epoch == 0:
+        if epoch == 0 and 'lora' not in args.sortby.lower():
             # CHOOSING LAYERS TO TRAIN
-            filtered = ww_details[
-                ww_details["longname"].str.contains("new_layer|embeddings") == False
+            filtered = ww_details[ # type: ignore
+                ww_details["longname"].str.contains("new_layer|embeddings") == False # type: ignore
             ]
             sortby = "alpha"
             if args.num_layers > len(filtered):
@@ -834,7 +852,7 @@ def calc_train_loss(  # Done
             tr_steps += 1
             train_losses.append(train_loss / tr_steps)
 
-            if not args.debug:
+            if not args.debug and 'lora' not in args.sortby.lower():
                 # Saving Details of Frozen Layers
                 freeze_dict = None
                 if step in [0]:
@@ -968,7 +986,7 @@ def main():
         end_memory = memory_allocated(device=cuda_device)
         peek_memory = max_memory_allocated(device=cuda_device)
         mempath = f"/rscratch/tpang/kinshuk/RpMKin/bert_ft/GLUE/trainseed_{args.seed}" + \
-                f"/task_{args.task_name}/{args.sortby}_asc_{args.alpha_ascending}"
+                f"/task_{args.task_name}/{args.sortby}" #_asc_{args.alpha_ascending}"
         Path(mempath).mkdir(parents=True, exist_ok=True)
         logger = get_logger(mempath, "memlog.log")
         logger.info(log_info)
@@ -978,7 +996,7 @@ def main():
         logger.info(f"\nPeak Memory usage: {int((peek_memory/1024)/1024)}MB\n\n")
 
     if args.debug and args.verbose:
-        print("\n->Debug Mode<-")
+        print("\n--> Debug Mode <--")
         print("\nTrain Loss:")
         print(*[train_loss[i] for i in range(0, len(train_loss), args.batch_size)])
         print("\nVal Loss:\n", val_loss)
