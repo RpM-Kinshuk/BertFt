@@ -81,11 +81,10 @@ def calc_train_loss(
                 else:
                     sortby = "random"
                 train_names = (
-                    filtered.sort_values(by=[sortby], ascending=args.alpha_ascending)[
-                        "longname"
-                    ]
-                    .iloc[: args.num_layers]
-                    .to_list()
+                    filtered.sort_values(
+                        by=[sortby], 
+                        ascending=args.alpha_ascending
+                    )["longname"].iloc[: args.num_layers].to_list()
                 )
             if args.verbose:
                 print("Sorted by ", sortby)
@@ -165,7 +164,9 @@ def calc_train_loss(
         val_loss, val_acc = calc_val_loss(args, model, eval_dataloader, device)
         if args.verbose:
             print(
-                f"\nEpoch: {epoch+1}/{args.epochs}|Elapsed: {time_elapsed:.2f} mins|Val Loss: {val_loss:.4f}|Val Acc: {val_acc:.4f}"
+                f"\nEpoch: {epoch+1}/{args.epochs}"
+                + f"|Elapsed: {time_elapsed:.2f} mins"
+                + f"|Val Loss: {val_loss:.4f}|Val Acc: {val_acc:.4f}"
             )
         val_losses.append(val_loss)
         val_accs.append(val_acc)
