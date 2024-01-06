@@ -8,7 +8,6 @@ from tqdm.auto import tqdm
 import weightwatcher as ww
 from eval import calc_val_loss
 from collections import defaultdict
-
 # from transformers import get_scheduler
 
 
@@ -23,6 +22,7 @@ def calc_train_loss(
         device: A string of device name
         train_dataloader: A dataloader for training
         eval_dataloader: A dataloader for evaluation
+        accelerator: A 🤗 Accelerator object
 
     Returns:
         train_losses: A list of training losses
@@ -132,7 +132,6 @@ def calc_train_loss(
             # if args.accelerate:
             #     accelerator.backward(outputs.loss)
             # else:
-            #     outputs.loss.backward()
             outputs.loss.backward()
             optimizer.step()
             tr_examples += len(batch["labels"])
@@ -156,8 +155,8 @@ def calc_train_loss(
                         os.path.join(stats_path, f"freeze_{epoch}.csv")
                     )
             progress_bar.update(1)
-            # if step >= 0.1 * len(train_dataloader) and args.task_name == 'wnli':
-            #     break
+            if args.task_name == 'wnli'and step >= 0.1 * len(train_dataloader):
+                break
         time_elapsed = (time.time() - start_time) / 60
 
         # Validation Loss
