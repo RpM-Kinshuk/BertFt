@@ -1,4 +1,5 @@
 import random
+from librosa import cache
 from torch.utils.data import DataLoader
 from datasets import load_dataset
 from transformers import (
@@ -7,14 +8,14 @@ from transformers import (
     default_data_collator,
     # get_scheduler,
 )
-
+from accelerate import Accelerator
 from BertFt.model.getmodel import get_model
-
 from task_keys import task_keys
 
+accelerator = Accelerator()
 
 # Get GLUE Train and Eval Dataloaders
-def get_model_data(args):  # Done
+def get_model_data(args, cache_dir=None):  # Done
     """
     Args:
         args: A dictionary of arguments
@@ -30,7 +31,7 @@ def get_model_data(args):  # Done
     # Load Raw Data and find num_labels
     if args.task_name is not None:
         raw_datasets = load_dataset(
-            "glue", args.task_name, cache_dir="/rscratch/tpang/kinshuk/cache"
+            "glue", args.task_name, cache_dir=cache_dir
         )
         is_regression = args.task_name == "stsb"
         if not is_regression:
@@ -38,7 +39,7 @@ def get_model_data(args):  # Done
             num_labels = len(label_list)
     else:
         raw_datasets = load_dataset(
-            "glue", "all", cache_dir="/rscratch/tpang/kinshuk/cache"
+            "glue", "all", cache_dir=cache_dir
         )
         is_regression = raw_datasets["train"].features["label"].dtype in ["float32", "float64"]  # type: ignore
         if not is_regression:
@@ -81,10 +82,10 @@ def get_model_data(args):  # Done
         """_summary_
 
         Args:
-            input (_type_): _description_
+            input: A dictionary of input data
 
         Returns:
-            _type_: _description_
+            result: A dictionary of processed data
         """
         texts = (
             (input[sentence1_key],)
@@ -103,21 +104,21 @@ def get_model_data(args):  # Done
                 result["labels"] = input["label"]
         return result
 
-    # if args.accelerate:
-    #     with accelerator.main_process_first():
-    #         processed_datasets = raw_datasets.map(
-    #             preprocess,
-    #             batched=True,
-    #             remove_columns=raw_datasets["train"].column_names,  # type: ignore
-    #             # desc="Running tokenizer on dataset",
-    #         )
-    # else:
-    processed_datasets = raw_datasets.map(
-        preprocess,
-        batched=True,
-        remove_columns=raw_datasets["train"].column_names,  # type: ignore
-        # desc="Running tokenizer on dataset",
-    )
+    if args.accelerate:
+        with accelerator.main_process_first():
+            processed_datasets = raw_datasets.map(
+                preprocess,
+                batched=True,
+                remove_columns=raw_datasets["train"].column_names,  # type: ignore
+                # desc="Running tokenizer on dataset",
+            )
+    else:
+        processed_datasets = raw_datasets.map(
+            preprocess,
+            batched=True,
+            remove_columns=raw_datasets["train"].column_names,  # type: ignore
+            # desc="Running tokenizer on dataset",
+        )
 
     train_dataset = processed_datasets["train"]  # type: ignore
     eval_dataset = processed_datasets[  # type: ignore

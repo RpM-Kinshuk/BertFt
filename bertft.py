@@ -166,7 +166,9 @@ if not args.verbose:
     global _tqdm_active
     _tqdm_active = False
 
-os.environ["TRANSFORMERS_CACHE"] = "/rscratch/tpang/kinshuk/cache"
+# Set Cache Directory
+cache_dir = "/rscratch/tpang/kinshuk/cache"
+os.environ["TRANSFORMERS_CACHE"] = cache_dir
 cuda_device = torch.cuda.current_device()
 reset_peak_memory_stats(device=cuda_device)
 reset_max_memory_allocated(device=cuda_device)
@@ -209,7 +211,6 @@ def calc_val_loss(model, eval_dataloader, device):  # Done
     if args.task_name == "stsb":
         return loss / len(eval_dataloader), 0
     return loss / len(eval_dataloader), correct / val_examples
-
 
 # Training Loss
 def calc_train_loss(  # Done
@@ -370,7 +371,7 @@ def calc_train_loss(  # Done
 
     return train_losses, val_losses, val_accs
 
-
+# Logger
 def get_logger(path, fname):
     if not os.path.exists(path):
         os.mkdir(path)
@@ -427,7 +428,7 @@ def main():
     #     device = accelerator.device
 
     # Get Data
-    model, train_dataloader, eval_dataloader = get_model_data(args)
+    model, train_dataloader, eval_dataloader = get_model_data(args, cache_dir)
     model.to(device)  # type: ignore
 
     if args.verbose:
