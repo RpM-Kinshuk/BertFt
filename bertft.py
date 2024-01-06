@@ -150,6 +150,10 @@ cuda_device = torch.cuda.current_device()
 reset_peak_memory_stats(device=cuda_device)
 reset_max_memory_allocated(device=cuda_device)
 start_memory = memory_allocated(device=cuda_device)
+mempath = (
+    f"/rscratch/tpang/kinshuk/RpMKin/bert_ft/GLUE/trainseed_{args.seed}"
+    + f"/task_{args.task_name}/{args.sortby}" # _asc_{args.alpha_ascending}"
+)
 
 
 # Main
@@ -195,7 +199,6 @@ def main():
         print(f"Validation data size: {len(eval_dataloader)}")
 
     # Get Optimizer
-    # model = get_model(args=args, num_labels=num_labels, device=device)
     optimizer = getOptim(args, model, vary_lyre=False, factor=1)
 
     # Accelerator
@@ -232,8 +235,6 @@ def main():
     if args.memlog:
         end_memory = memory_allocated(device=cuda_device)
         peek_memory = max_memory_allocated(device=cuda_device)
-        mempath = f"/rscratch/tpang/kinshuk/RpMKin/bert_ft/GLUE/trainseed_{args.seed}" + \
-                f"/task_{args.task_name}/{args.sortby}" #_asc_{args.alpha_ascending}"
         Path(mempath).mkdir(parents=True, exist_ok=True)
         logger = get_logger(mempath, "memlog.log")
         logger.info(log_info)
