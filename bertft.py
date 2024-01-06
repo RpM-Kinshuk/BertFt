@@ -18,9 +18,9 @@ from transformers import set_seed
 # from accelerate import Accelerator
 from distutils.util import strtobool
 from model.optimizer import getOptim
+from dataloader.logger import get_logger
 from traineval.eval import calc_val_loss
 from traineval.train import calc_train_loss
-from dataloader.logger import get_logger
 from dataloader.model_data import get_model_data
 from transformers.utils.logging import (
     set_verbosity_error as transformers_vb_err,
@@ -197,9 +197,9 @@ def main():
     i_val_loss, i_val_acc = calc_val_loss(args, model, eval_dataloader, device)
     if args.verbose:
         print(
-            f"\nEpoch 0/{args.epochs} "
-            + f"| Val Loss: {i_val_loss:.2f} "
-            + f"| Val Acc: {i_val_acc:.2f}"
+            f"\nEpoch 0/{args.epochs}"
+            + f"|Val Loss: {i_val_loss:.2f} "
+            + f"|Val Acc: {i_val_acc:.2f}"
         )
 
     # Train and get Losses
@@ -220,7 +220,7 @@ def main():
         "val_acc_base": val_acc,
     }
 
-    if args.memlog:
+    if args.memlog: # Memory Logging
         log_info = (
             f"\n\n{args.task_name} "
             + f"{args.num_layers} Layers "
