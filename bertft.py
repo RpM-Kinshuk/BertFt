@@ -1,21 +1,18 @@
 # Imports
+from model.getmodel import get_model
+from model.optimizer import getOptim
 import argparse
 import random
 import numpy as np
 import torch
 import torch.backends.cudnn
 import torch.backends.mps
-from peft import get_peft_model, LoraConfig, TaskType # type: ignore
-import torch.nn as nn
-from torch.nn import BCEWithLogitsLoss, CrossEntropyLoss, MSELoss
 from torch.cuda import (
     max_memory_allocated,
     reset_peak_memory_stats,
     reset_max_memory_allocated,
     memory_allocated,
 )
-
-from transformers.modeling_outputs import SequenceClassifierOutput
 
 import pandas as pd
 import weightwatcher as ww
@@ -26,7 +23,6 @@ import logging
 import sys
 from pathlib import Path
 from collections import defaultdict
-from typing import Optional, Tuple, Union
 
 from distutils.util import strtobool
 
@@ -45,20 +41,9 @@ from datasets import load_dataset
 
 from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
-import copy
 from transformers import (
-    AutoModelForSequenceClassification,
     BertTokenizer,
-    RobertaTokenizer,
-    BertPreTrainedModel,
-    RobertaPreTrainedModel,
-    BertModel,
-    RobertaModel,
-    AutoTokenizer,
     DataCollatorWithPadding,
-    AutoConfig,
-    # PretrainedConfig,
-    # SchedulerType,
     default_data_collator,
     set_seed,
     # get_scheduler,
@@ -88,8 +73,8 @@ task_to_keys = {  # Done
 #     "wsc": ("text", "span1_text"),
 # }
 
-parser = argparse.ArgumentParser(description="BERT Fine-Tuning")
 
+parser = argparse.ArgumentParser(description="BERT Fine-Tuning")
 # Parser Arguments and Defaults
 parser.add_argument(
     "--savepath",
@@ -216,341 +201,6 @@ cuda_device = torch.cuda.current_device()
 reset_peak_memory_stats(device=cuda_device)
 reset_max_memory_allocated(device=cuda_device)
 start_memory = memory_allocated(device=cuda_device)
-
-
-# BERT Model Architecture
-class BertFT(BertPreTrainedModel):  # Done
-    """
-    BERT Fine-Tuning on GLUE tasks
-    """
-
-    def __init__(self, config):
-        super().__init__(config)
-        self.num_labels = config.num_labels
-        self.config = config
-
-        self.bert = BertModel(config)
-        classifier_dropout = (
-            config.classifier_dropout
-            if config.classifier_dropout is not None
-            else config.hidden_dropout_prob
-        )
-        self.dropout = nn.Dropout(classifier_dropout)
-        self.new_layer = nn.Linear(config.hidden_size, config.hidden_size)
-        self.classifier = nn.Linear(config.hidden_size, config.num_labels)
-        self.relu = nn.ReLU()
-        self.post_init()
-
-    def forward(
-        self,
-        input_ids: Optional[torch.LongTensor] = None,
-        attention_mask: Optional[torch.FloatTensor] = None,
-        token_type_ids: Optional[torch.LongTensor] = None,
-        position_ids: Optional[torch.LongTensor] = None,
-        head_mask: Optional[torch.FloatTensor] = None,
-        inputs_embeds: Optional[torch.FloatTensor] = None,
-        labels: Optional[torch.LongTensor] = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
-    ) -> Union[Tuple[torch.Tensor], SequenceClassifierOutput]:
-        r"""
-        Feed-forward function for the bert ft model
-        """
-        return_dict = (
-            return_dict if return_dict is not None else self.config.use_return_dict
-        )
-
-        # Feed-forward through BERT
-        outputs = self.bert(
-            input_ids,
-            attention_mask=attention_mask,
-            token_type_ids=token_type_ids,
-            position_ids=position_ids,
-            head_mask=head_mask,
-            inputs_embeds=inputs_embeds,
-            output_attentions=output_attentions,
-            output_hidden_states=output_hidden_states,
-            return_dict=return_dict,
-        )
-
-        # Feed-forward through new layer and classifier
-        pooled_output = outputs[1]
-        pooled_output = self.dropout(pooled_output)
-        intermediate_output = self.new_layer(pooled_output)
-        intermediate_output = self.relu(intermediate_output)
-        intermediate_output = self.dropout(intermediate_output)
-        logits = self.classifier(intermediate_output)
-
-        loss = None
-
-        # Calculate loss if labels are provided
-        if labels is not None:
-            if self.config.problem_type is None:
-                if self.num_labels == 1:
-                    #  We are doing regression
-                    self.config.problem_type = "regression"
-                elif (
-                    self.num_labels > 1
-                    and labels.dtype == torch.long
-                    or labels.dtype == torch.int
-                ):
-                    # We are doing multi-class classification
-                    self.config.problem_type = "single_label_classification"
-                else:
-                    # We are doing multi-label classification
-                    self.config.problem_type = "multi_label_classification"
-
-            if self.config.problem_type == "regression":
-                loss_fct = MSELoss()
-                if self.num_labels == 1:
-                    loss = loss_fct(logits.squeeze(), labels.squeeze())
-                else:
-                    loss = loss_fct(logits, labels)
-            elif self.config.problem_type == "single_label_classification":
-                loss_fct = CrossEntropyLoss()
-                loss = loss_fct(logits.view(-1, self.num_labels), labels.view(-1))
-            elif self.config.problem_type == "multi_label_classification":
-                loss_fct = BCEWithLogitsLoss()
-                loss = loss_fct(logits, labels)
-
-        # Return loss and logits
-        if not return_dict:
-            output = (logits,) + outputs[2:]
-            return ((loss,) + output) if loss is not None else output
-
-        # Return loss and logits
-        return SequenceClassifierOutput(
-            loss=loss,
-            logits=logits,
-            hidden_states=outputs.hidden_states,
-            attentions=outputs.attentions,
-        )
-
-
-class RobertaFT(RobertaPreTrainedModel):  # Done
-    def __init__(self, config):
-        super().__init__(config)
-        self.num_labels = config.num_labels
-        self.config = config
-
-        self.roberta = RobertaModel(config, add_pooling_layer=True)
-        classifier_dropout = (
-            config.classifier_dropout
-            if config.classifier_dropout is not None
-            else config.hidden_dropout_prob
-        )
-        self.dropout = nn.Dropout(classifier_dropout)
-        self.new_layer = nn.Linear(config.hidden_size, config.hidden_size)
-        self.classifier = nn.Linear(config.hidden_size, config.num_labels)
-        self.relu = nn.ReLU()
-
-        # Initialize weights and apply final processing
-        self.post_init()
-
-    def forward(
-        self,
-        input_ids: Optional[torch.LongTensor] = None,
-        attention_mask: Optional[torch.FloatTensor] = None,
-        token_type_ids: Optional[torch.LongTensor] = None,
-        position_ids: Optional[torch.LongTensor] = None,
-        head_mask: Optional[torch.FloatTensor] = None,
-        inputs_embeds: Optional[torch.FloatTensor] = None,
-        labels: Optional[torch.LongTensor] = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
-    ) -> Union[Tuple[torch.Tensor], SequenceClassifierOutput]:
-        r"""
-        labels (`torch.LongTensor` of shape `(batch_size,)`, *optional*):
-            Labels for computing the sequence classification/regression loss. Indices should be in `[0, ...,
-            config.num_labels - 1]`. If `config.num_labels == 1` a regression loss is computed (Mean-Square loss), If
-            `config.num_labels > 1` a classification loss is computed (Cross-Entropy).
-        """
-        return_dict = (
-            return_dict if return_dict is not None else self.config.use_return_dict
-        )
-
-        outputs = self.roberta(
-            input_ids,
-            attention_mask=attention_mask,
-            token_type_ids=token_type_ids,
-            position_ids=position_ids,
-            head_mask=head_mask,
-            inputs_embeds=inputs_embeds,
-            output_attentions=output_attentions,
-            output_hidden_states=output_hidden_states,
-            return_dict=return_dict,
-        )
-        pooled_output = outputs[1]
-        pooled_output = self.dropout(pooled_output)
-        intermediate_output = self.new_layer(pooled_output)
-        intermediate_output = self.relu(intermediate_output)
-        logits = self.classifier(intermediate_output)
-
-        loss = None
-        if labels is not None:
-            if self.config.problem_type is None:
-                if self.num_labels == 1:
-                    self.config.problem_type = "regression"
-                elif self.num_labels > 1 and (
-                    labels.dtype == torch.long or labels.dtype == torch.int
-                ):
-                    self.config.problem_type = "single_label_classification"
-                else:
-                    self.config.problem_type = "multi_label_classification"
-
-            if self.config.problem_type == "regression":
-                loss_fct = MSELoss()
-                if self.num_labels == 1:
-                    loss = loss_fct(logits.squeeze(), labels.squeeze())
-                else:
-                    loss = loss_fct(logits, labels)
-            elif self.config.problem_type == "single_label_classification":
-                loss_fct = CrossEntropyLoss()
-                loss = loss_fct(logits.view(-1, self.num_labels), labels.view(-1))
-            elif self.config.problem_type == "multi_label_classification":
-                loss_fct = BCEWithLogitsLoss()
-                loss = loss_fct(logits, labels)
-
-        if not return_dict:
-            output = (logits,) + outputs[2:]
-            return ((loss,) + output) if loss is not None else output
-
-        return SequenceClassifierOutput(
-            loss=loss,
-            logits=logits,
-            hidden_states=outputs.hidden_states,
-            attentions=outputs.attentions,
-        )
-
-
-# Custom training for Parameters
-def getCustomParams(model):  # Done
-    """_summary_
-
-    Args:
-        model (_type_): _description_
-
-    Returns:
-        _type_: _description_
-    """
-    new_params = []
-    pre_trained = []
-    for name, val in model.named_parameters():
-        if "new_layer" in name or "classifier" in name:
-            new_params.append(val)
-        else:
-            pre_trained.append(val)
-    return new_params, pre_trained
-
-
-# Optimizer
-def getOptim(model, vary_lyre=False, factor=1):  # Done
-    """_summary_
-
-    Args:
-        model (_type_): _description_
-        vary_lyre (bool, optional): _description_. Defaults to False.
-        factor (int, optional): _description_. Defaults to 1.
-
-    Returns:
-        _type_: _description_
-    """
-    if vary_lyre:
-        new_params, pre_params = getCustomParams(model)
-        return torch.optim.AdamW(
-            [
-                {"params": new_params, "lr": args.learning_rate * factor},
-                {"params": pre_params, "lr": args.learning_rate},
-            ],
-        )
-    else:
-        return torch.optim.AdamW(
-            model.parameters(),
-            lr=args.learning_rate,
-        )
-
-
-# Model
-def get_model(args, num_labels):  # Done
-    """_summary_
-
-    Args:
-        args (_type_): _description_
-        num_labels (_type_): _description_
-
-    Returns:
-        _type_: _description_
-    """
-    model = None
-    if "bert" in args.model_name.lower():
-        model = BertFT.from_pretrained(
-            args.model_name,
-            num_labels=num_labels,
-            problem_type="regression"
-            if args.task_name == "stsb"
-            else "single_label_classification",
-            # cache_dir=args.savepath,
-        )
-    elif "roberta" in args.model_name.lower():
-        model = RobertaFT.from_pretrained(
-            args.model_name,
-            num_labels=num_labels,
-            problem_type="regression"
-            if args.task_name == "stsb"
-            else "single_label_classification",
-            # cache_dir=args.savepath,
-        )
-    
-    # If freeze_bert is true, freeze pre-trained layers
-    if args.freeze:
-        if args.verbose:
-            print(f"Freezing {args.model_name} Model")
-        for name, param in model.named_parameters():  # type: ignore
-            if "classifier" in name or "new_layer" in name:
-                param.requires_grad = True
-            else:
-                param.requires_grad = False
-    # Else, unfreeze all layers
-    else:
-        if args.verbose:
-            print(f"Defreezing {args.model_name} Model")
-        for name, param in model.named_parameters():  # type: ignore
-            param.requires_grad = True
-    
-    # Get the LoRA injected model
-    if 'autolora' in args.sortby.lower():
-        lora_config = LoraConfig(
-            task_type= TaskType.SEQ_CLS, #optional
-            inference_mode = False,
-            r = 1,
-            lora_alpha = 1,
-            lora_dropout = 0.05,
-            bias = "none",
-            # target_modules (Union[List[str],str])
-            # layers_to_transform (Union[List[int],int]) 
-            #layers_pattern (str)
-        )
-        lora_model = get_peft_model(model, lora_config) # type: ignore
-        return lora_model
-    return model
-
-
-# Copy Model Parameters
-def get_model_params(model):  # Done
-    """_summary_
-
-    Args:
-        model (_type_): _description_
-
-    Returns:
-        _type_: _description_
-    """
-    params = {}
-    for name in model.state_dict():
-        params[name] = copy.deepcopy(model.state_dict()[name])
-    return params
 
 
 # Get GLUE Train and Eval Dataloaders
@@ -949,7 +599,7 @@ def main():
 
     # Get Model and Optimizer
     # model = get_model(args=args, num_labels=num_labels, device=device)
-    optimizer = getOptim(model, vary_lyre=False, factor=1)
+    optimizer = getOptim(args, model, vary_lyre=False, factor=1)
 
     # Accelerator
     # if args.accelerate:
