@@ -124,41 +124,37 @@ parser.add_argument(
 )
 args = parser.parse_args()
 
-# Control randomness
-random.seed(args.seed)
-np.random.seed(args.seed)
-torch.manual_seed(args.seed)
-torch.cuda.manual_seed_all(args.seed)
-torch.backends.cudnn.deterministic = True
-torch.backends.cudnn.benchmark = False
-# accelerate.utils.set_seed(args.seed)
-set_seed(args.seed)  # transformers
-
-# Set Verbosity
-if args.verbose:
-    print("SEED:", args.seed)
-else:
-    transformers_vb_err()
-    datasets_vb_err()
-    global _tqdm_active
-    _tqdm_active = False
-
 # Set Cache Directory
 cache_dir = "/rscratch/tpang/kinshuk/cache"
-os.environ["TRANSFORMERS_CACHE"] = cache_dir
-cuda_device = torch.cuda.current_device()
-reset_peak_memory_stats(device=cuda_device)
-reset_max_memory_allocated(device=cuda_device)
-start_memory = memory_allocated(device=cuda_device)
+
+# Memory Log Path
 mempath = (
     f"/rscratch/tpang/kinshuk/RpMKin/bert_ft/GLUE/trainseed_{args.seed}"
-    + f"/task_{args.task_name}/{args.sortby}" # _asc_{args.alpha_ascending}"
+    + f"/task_{args.task_name}/{args.sortby}"  # _asc_{args.alpha_ascending}"
 )
 
 
-# Main
 def main():
+    os.environ["TRANSFORMERS_CACHE"] = cache_dir
+    cuda_device = torch.cuda.current_device()
+
+    # Control randomness
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
+    # accelerate.utils.set_seed(args.seed)
+    torch.cuda.manual_seed_all(args.seed)
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.deterministic = True
+    set_seed(args.seed)  # transformers seed
+
+    # Memory Stats Initialization
+    reset_peak_memory_stats(device=cuda_device)
+    reset_max_memory_allocated(device=cuda_device)
+    start_memory = memory_allocated(device=cuda_device)
+
     if args.verbose:
+        print("SEED:", args.seed)
         task_info = (
             f"\n\n\nTask to finetune: {args.task_name}\n\n\n"
             + f"alpha Decreasing: {not args.alpha_ascending}\n\n\n"
@@ -166,21 +162,13 @@ def main():
             + f"Train randomly: {'random' in args.sortby.lower()}\n\n\n"
         )
         print(task_info)
-
-    log_info = (
-        f"\n\n{args.task_name} "
-        + f"{args.num_layers} Layers "
-        + f"{args.sortby} "
-        + f"ascending {args.alpha_ascending}"
-    )
-    if not args.verbose:
+    else:
         datasets_vb_err()
         transformers_vb_err()
         global _tqdm_active
         _tqdm_active = False
-    # Accelerator
-    device = None
 
+    device = None
     if torch.cuda.is_available():
         device = torch.device("cuda")
     elif torch.backends.mps.is_available():
@@ -190,16 +178,14 @@ def main():
     # if args.accelerate:
     #     device = accelerator.device
 
-    # Get Data
+    # Get Model, Data, Optimizer
     model, train_dataloader, eval_dataloader = get_model_data(args, cache_dir)
     model.to(device)  # type: ignore
+    optimizer = getOptim(args, model, vary_lyre=False, factor=1)
 
     if args.verbose:
         print(f"Training data size: {len(train_dataloader)}")
         print(f"Validation data size: {len(eval_dataloader)}")
-
-    # Get Optimizer
-    optimizer = getOptim(args, model, vary_lyre=False, factor=1)
 
     # Accelerator
     # if args.accelerate:
@@ -211,10 +197,12 @@ def main():
     i_val_loss, i_val_acc = calc_val_loss(args, model, eval_dataloader, device)
     if args.verbose:
         print(
-            f"\nEpoch 0/{args.epochs} | Val Loss: {i_val_loss:.2f} | Val Acc: {i_val_acc:.2f}"
+            f"\nEpoch 0/{args.epochs} "
+            + f"| Val Loss: {i_val_loss:.2f} "
+            + f"| Val Acc: {i_val_acc:.2f}"
         )
 
-    # Get Training Loss
+    # Train and get Losses
     train_loss, val_loss, val_acc = calc_train_loss(
         args=args,
         model=model,
@@ -233,15 +221,22 @@ def main():
     }
 
     if args.memlog:
+        log_info = (
+            f"\n\n{args.task_name} "
+            + f"{args.num_layers} Layers "
+            + f"{args.sortby} "
+            + f"ascending {args.alpha_ascending}"
+        )
         end_memory = memory_allocated(device=cuda_device)
         peek_memory = max_memory_allocated(device=cuda_device)
         Path(mempath).mkdir(parents=True, exist_ok=True)
         logger = get_logger(mempath, "memlog.log")
         logger.info(log_info)
         logger.info(
-            f"\nMemory usage before: {start_memory} bytes\nMemory usage after: {int((end_memory/1024)/1024)}MB"
+            f"\nMemory usage before: {(start_memory/1024)/1024}MB\n"
+            + f"Memory usage after: {(end_memory/1024)/1024}MB"
         )
-        logger.info(f"\nPeak Memory usage: {int((peek_memory/1024)/1024)}MB\n\n")
+        logger.info(f"\nPeak Memory usage: {(peek_memory/1024)/1024}MB\n\n")
 
     if args.debug and args.verbose:
         print("\n--> Debug Mode <--")
