@@ -7,11 +7,11 @@ from transformers import (
     DataCollatorWithPadding,
     default_data_collator
 )
-from accelerate import Accelerator
+# from accelerate import Accelerator
 from BertFt.model.getmodel import get_model
 from task_keys import task_keys
 
-accelerator = Accelerator()
+# accelerator = Accelerator()
 
 # Get GLUE Train and Eval Dataloaders
 def get_model_data(args, cache_dir=None):  # Done
@@ -103,21 +103,21 @@ def get_model_data(args, cache_dir=None):  # Done
                 result["labels"] = input["label"]
         return result
 
-    if args.accelerate:
-        with accelerator.main_process_first():
-            processed_datasets = raw_datasets.map(
-                preprocess,
-                batched=True,
-                remove_columns=raw_datasets["train"].column_names,  # type: ignore
-                # desc="Running tokenizer on dataset",
-            )
-    else:
-        processed_datasets = raw_datasets.map(
-            preprocess,
-            batched=True,
-            remove_columns=raw_datasets["train"].column_names,  # type: ignore
-            # desc="Running tokenizer on dataset",
-        )
+    # if args.accelerate:
+    #     with accelerator.main_process_first():
+    #         processed_datasets = raw_datasets.map(
+    #             preprocess,
+    #             batched=True,
+    #             remove_columns=raw_datasets["train"].column_names,  # type: ignore
+    #             # desc="Running tokenizer on dataset",
+    #         )
+    # else:
+    processed_datasets = raw_datasets.map(
+        preprocess,
+        batched=True,
+        remove_columns=raw_datasets["train"].column_names,  # type: ignore
+        # desc="Running tokenizer on dataset",
+    )
 
     train_dataset = processed_datasets["train"]  # type: ignore
     eval_dataset = processed_datasets[  # type: ignore
