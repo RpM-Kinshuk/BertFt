@@ -5,8 +5,7 @@ from datasets import load_dataset
 from transformers import (
     BertTokenizer,
     DataCollatorWithPadding,
-    default_data_collator,
-    # get_scheduler,
+    default_data_collator
 )
 from accelerate import Accelerator
 from BertFt.model.getmodel import get_model
@@ -19,7 +18,8 @@ def get_model_data(args, cache_dir=None):  # Done
     """
     Args:
         args: A dictionary of arguments
-
+        cache_dir: A string of cache directory
+    
     Returns:
         model: A model object
         train_dataloader: A dataloader for training
@@ -79,8 +79,7 @@ def get_model_data(args, cache_dir=None):  # Done
 
     # Preprocess Data
     def preprocess(input):
-        """_summary_
-
+        """
         Args:
             input: A dictionary of input data
 
