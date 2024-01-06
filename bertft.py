@@ -1,48 +1,33 @@
 # Imports
-from BertFt.dataloader.model_data import get_model_data
-from model.optimizer import getOptim
-import argparse
-import random
-import numpy as np
+import os
 import torch
-import torch.backends.cudnn
+import random
+import argparse
+import numpy as np
+# import accelerate.utils
+from pathlib import Path
 import torch.backends.mps
+import torch.backends.cudnn
 from torch.cuda import (
     max_memory_allocated,
     reset_peak_memory_stats,
     reset_max_memory_allocated,
     memory_allocated,
 )
-
-import pandas as pd
-import weightwatcher as ww
-import time
-import os
-
-import logging
-import sys
-from pathlib import Path
-from collections import defaultdict
-
+from transformers import set_seed
+# from accelerate import Accelerator
 from distutils.util import strtobool
-
-# other imports
-# import datasets
-# import evaluate
-# from accelerate.logging import get_logger
-from accelerate import Accelerator
-import accelerate.utils
-
-# from sklearn.model_selection import train_test_split
-
-# from torch.utils.data import TensorDataset
-
-from tqdm.auto import tqdm
-from transformers import (
-    set_seed,
-    # get_scheduler,
+from model.optimizer import getOptim
+from traineval.eval import calc_val_loss
+from traineval.train import calc_train_loss
+from dataloader.logger import get_logger
+from dataloader.model_data import get_model_data
+from transformers.utils.logging import (
+    set_verbosity_error as transformers_vb_err,
 )
-
+from datasets.utils.logging import (
+    set_verbosity_error as datasets_vb_err,
+)
 
 parser = argparse.ArgumentParser(description="BERT Fine-Tuning")
 # Parser Arguments and Defaults
@@ -140,8 +125,6 @@ parser.add_argument(
 args = parser.parse_args()
 
 # Control randomness
-if args.verbose:
-    print("SEED:", args.seed)
 random.seed(args.seed)
 np.random.seed(args.seed)
 torch.manual_seed(args.seed)
@@ -151,18 +134,12 @@ torch.backends.cudnn.benchmark = False
 # accelerate.utils.set_seed(args.seed)
 set_seed(args.seed)  # transformers
 
-accelerator = Accelerator()
-
-from transformers.utils.logging import (
-    set_verbosity_error as transformers_set_verbosity_error,
-)
-from datasets.utils.logging import (
-    set_verbosity_error as datasets_set_verbosity_error,
-)
-
-if not args.verbose:
-    transformers_set_verbosity_error()
-    datasets_set_verbosity_error()
+# Set Verbosity
+if args.verbose:
+    print("SEED:", args.seed)
+else:
+    transformers_vb_err()
+    datasets_vb_err()
     global _tqdm_active
     _tqdm_active = False
 
@@ -173,224 +150,6 @@ cuda_device = torch.cuda.current_device()
 reset_peak_memory_stats(device=cuda_device)
 reset_max_memory_allocated(device=cuda_device)
 start_memory = memory_allocated(device=cuda_device)
-
-
-# Validation Loss (Classification)
-def calc_val_loss(model, eval_dataloader, device):  # Done
-    """_summary_
-
-    Args:
-        model (_type_): _description_
-        eval_dataloader (_type_): _description_
-        device (_type_): _description_
-
-    Returns:
-        _type_: _description_
-    """
-    loss = 0
-    val_examples = 0
-    correct = 0
-    model.eval()
-    for step, batch in enumerate(eval_dataloader):
-        input_len = len(batch["input_ids"])
-        with torch.no_grad():
-            outputs = model(
-                # **batch,
-                input_ids=batch["input_ids"].to(device),
-                token_type_ids=batch["token_type_ids"].to(device),
-                attention_mask=batch["attention_mask"].to(device),
-                labels=batch["labels"].to(device),
-            )
-            logits = outputs.logits
-            _, predict = torch.max(logits, dim=1)
-
-            correct += sum(predict == batch["labels"].to(device)).item()  # type: ignore
-
-        loss += outputs.loss.item()
-        val_examples += input_len
-    if args.task_name == "stsb":
-        return loss / len(eval_dataloader), 0
-    return loss / len(eval_dataloader), correct / val_examples
-
-# Training Loss
-def calc_train_loss(  # Done
-    args, model, optimizer, device, train_dataloader, eval_dataloader
-):
-    """_summary_
-
-    Args:
-        model (_type_): _description_
-        optimizer (_type_): _description_
-        device (_type_): _description_
-        train_dataloader (_type_): _description_
-        eval_dataloader (_type_): _description_
-
-    Returns:
-        _type_: _description_
-    """
-    model.train()
-    num_all_pts = 0
-    train_losses = []
-    val_losses = []
-    val_accs = []
-
-    stats_path = os.path.join(args.savepath, "stats")
-    Path(stats_path).mkdir(parents=True, exist_ok=True)
-
-    start_time = time.time()
-
-    num_steps = args.epochs * len(train_dataloader)
-
-    progress_bar = tqdm(
-        range(num_steps),
-        disable=not args.verbose,
-    )
-
-    for epoch in range(args.epochs):
-        model.train()
-        train_loss = 0
-        val_loss = 0
-        tr_examples, tr_steps = 0, 0
-
-        if 'lora' not in args.sortby.lower():
-            # Save WeightWatcher Metrics
-            watcher = ww.WeightWatcher(model=model)
-            ww_details = watcher.analyze(min_evals=10)
-
-        if not args.debug and 'lora' not in args.sortby.lower():
-            ww_details.to_csv(os.path.join(stats_path, f"epoch_{epoch}.csv")) # type: ignore
-
-        if epoch == 0 and 'lora' not in args.sortby.lower():
-            # CHOOSING LAYERS TO TRAIN
-            filtered = ww_details[ # type: ignore
-                ww_details["longname"].str.contains("new_layer|embeddings") == False # type: ignore
-            ]
-            sortby = "alpha"
-            if args.num_layers > len(filtered):
-                args.num_layers = len(filtered)
-            if "random" in (args.sortby).lower():
-                train_names = random.sample(
-                    filtered["longname"].to_list(), args.num_layers
-                )
-            else:
-                if "alpha" in (args.sortby).lower():
-                    sortby = "alpha"
-                elif "layer" in (args.sortby).lower():
-                    sortby = "layer_id"
-                else:
-                    sortby = "random"
-                train_names = (
-                    filtered.sort_values(by=[sortby], ascending=args.alpha_ascending)[
-                        "longname"
-                    ]
-                    .iloc[: args.num_layers]
-                    .to_list()
-                )
-            if args.verbose:
-                print("Sorted by ", sortby)
-                print("Training layers:", train_names)
-
-            layer_to_train = []
-
-            for layer in train_names:
-                layer_to_train.append(layer + ".weight")
-                layer_to_train.append(layer + ".bias")
-
-                # Add Layer Norm
-                if args.add_layer_norm:
-                    if "output" in layer:
-                        layer_to_train.append(
-                            layer.replace("dense", "LayerNorm") + ".weight"
-                        )
-                        layer_to_train.append(
-                            layer.replace("dense", "LayerNorm") + ".bias"
-                        )
-
-            layer_to_train = list(set(layer_to_train))
-
-            # print("Final Training layers:", layer_to_train)
-
-            for name, param in model.named_parameters():
-                if name in layer_to_train:
-                    if args.verbose:
-                        print(f"Enabling {name} parameter")
-                    param.requires_grad = True
-
-        if args.verbose:
-            print(f"===================================> Epoch {epoch+1}/{args.epochs}")
-        # Training Loop
-        for step, batch in enumerate(train_dataloader):
-            optimizer.zero_grad()
-            outputs = model(
-                # **batch,
-                input_ids=batch["input_ids"].to(device),
-                token_type_ids=batch["token_type_ids"].to(device),
-                attention_mask=batch["attention_mask"].to(device),
-                labels=batch["labels"].to(device),
-            )
-            train_loss += outputs.loss.item()
-            # if args.accelerate:
-            #     accelerator.backward(outputs.loss)
-            # else:
-            #     outputs.loss.backward()
-            outputs.loss.backward()
-            optimizer.step()
-            tr_examples += len(batch["labels"])
-            num_all_pts += len(batch["labels"])
-            tr_steps += 1
-            train_losses.append(train_loss / tr_steps)
-
-            if not args.debug and 'lora' not in args.sortby.lower():
-                # Saving Details of Frozen Layers
-                freeze_dict = None
-                if step in [0]:
-                    freeze_dict = defaultdict(list)
-                    for name, param in model.named_parameters():
-                        freeze_dict["name"].append(name)
-                        if param.grad is None:
-                            freeze_dict["freeze_layer"].append(True)
-                        elif torch.sum(param.grad.abs()).item() > 0:
-                            freeze_dict["freeze_layer"].append(False)
-                if freeze_dict is not None:
-                    pd.DataFrame(freeze_dict).to_csv(
-                        os.path.join(stats_path, f"freeze_{epoch}.csv")
-                    )
-            progress_bar.update(1)
-            # if step >= 0.1 * len(train_dataloader) and args.task_name == 'wnli':
-            #     break
-        time_elapsed = (time.time() - start_time) / 60
-
-        # Validation Loss
-        val_loss, val_acc = calc_val_loss(model, eval_dataloader, device)
-        if args.verbose:
-            print(
-                f"\nEpoch: {epoch+1}/{args.epochs}|Elapsed: {time_elapsed:.2f} mins|Val Loss: {val_loss:.4f}|Val Acc: {val_acc:.4f}"
-            )
-        val_losses.append(val_loss)
-        val_accs.append(val_acc)
-
-    return train_losses, val_losses, val_accs
-
-# Logger
-def get_logger(path, fname):
-    if not os.path.exists(path):
-        os.mkdir(path)
-    logger = logging.getLogger()
-    logger.setLevel(logging.INFO)
-    file_log_handler = logging.FileHandler(
-        os.path.join(path, fname), mode="a"
-    )  # 'a' for append
-    stderr_log_handler = logging.StreamHandler(sys.stdout)
-    logger.addHandler(file_log_handler)
-    logger.addHandler(stderr_log_handler)
-    formatter = logging.Formatter(
-        "%(asctime)s;%(levelname)s;%(message)s", "%Y-%m-%d %H:%M:%S"
-    )
-    file_log_handler.setFormatter(formatter)
-    stderr_log_handler.setFormatter(formatter)
-    sys.stdout.flush()
-
-    return logger
 
 
 # Main
@@ -411,8 +170,8 @@ def main():
         + f"ascending {args.alpha_ascending}"
     )
     if not args.verbose:
-        transformers_set_verbosity_error()
-        datasets_set_verbosity_error()
+        datasets_vb_err()
+        transformers_vb_err()
         global _tqdm_active
         _tqdm_active = False
     # Accelerator
@@ -435,7 +194,7 @@ def main():
         print(f"Training data size: {len(train_dataloader)}")
         print(f"Validation data size: {len(eval_dataloader)}")
 
-    # Get Model and Optimizer
+    # Get Optimizer
     # model = get_model(args=args, num_labels=num_labels, device=device)
     optimizer = getOptim(args, model, vary_lyre=False, factor=1)
 
@@ -446,7 +205,7 @@ def main():
     #     )
 
     # Get Initial Validation Loss
-    i_val_loss, i_val_acc = calc_val_loss(model, eval_dataloader, device)
+    i_val_loss, i_val_acc = calc_val_loss(args, model, eval_dataloader, device)
     if args.verbose:
         print(
             f"\nEpoch 0/{args.epochs} | Val Loss: {i_val_loss:.2f} | Val Acc: {i_val_acc:.2f}"
