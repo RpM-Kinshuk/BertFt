@@ -16,6 +16,7 @@ def get_model_data(args, cache_dir=None, accelerator=None):
     Args:
         args: A dictionary of arguments
         cache_dir: A string of cache directory
+        accelerator: A 🤗 Accelerator object
     
     Returns:
         model: A model object
