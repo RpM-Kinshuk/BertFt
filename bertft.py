@@ -1,5 +1,5 @@
 # Imports
-from dataloader.data_model import get_model_data
+from BertFt.dataloader.model_data import get_model_data
 from model.optimizer import getOptim
 import argparse
 import random
