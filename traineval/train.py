@@ -6,8 +6,8 @@ import pandas as pd
 from pathlib import Path
 from tqdm.auto import tqdm
 import weightwatcher as ww
-from eval import calc_val_loss
 from collections import defaultdict
+from traineval.eval import calc_val_loss
 # from transformers import get_scheduler
 
 

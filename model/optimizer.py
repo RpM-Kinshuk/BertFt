@@ -1,5 +1,5 @@
 import torch
-from params import getCustomParams
+from model.params import getCustomParams
 
 # Optimizer
 def getOptim(args, model, vary_lyre=False, factor=1):  # Done

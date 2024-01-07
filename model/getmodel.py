@@ -1,5 +1,5 @@
-from bertbase import BertFT
-from roberta import RobertaFT
+from model.bertbase import BertFT
+from model.roberta import RobertaFT
 from peft import get_peft_model, LoraConfig, TaskType # type: ignore
 
 def get_model(args, num_labels):  # Done

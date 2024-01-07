@@ -1,5 +1,4 @@
 import random
-from torch.utils.data import DataLoader
 from datasets import load_dataset
 from transformers import (
     BertTokenizer,
@@ -7,10 +6,11 @@ from transformers import (
     default_data_collator
 )
 from model.getmodel import get_model
+from torch.utils.data import DataLoader
 from dataloader.task_keys import task_keys
 
 # Get GLUE Train and Eval Dataloaders
-def get_model_data(args, cache_dir=None, accelerator=None):
+def get_model_data(args, cache_dir='/cache', accelerator=None):
     """
     Args:
         args: A dictionary of arguments
