@@ -6,7 +6,7 @@ import pandas as pd
 from pathlib import Path
 from tqdm.auto import tqdm
 import weightwatcher as ww
-from eval import calc_val_loss
+from . import eval
 from collections import defaultdict
 # from transformers import get_scheduler
 
@@ -160,7 +160,7 @@ def calc_train_loss(
         time_elapsed = (time.time() - start_time) / 60
 
         # Validation Loss
-        val_loss, val_acc = calc_val_loss(args, model, eval_dataloader, device)
+        val_loss, val_acc = eval.calc_val_loss(args, model, eval_dataloader, device)
         if args.verbose:
             print(
                 f"\nEpoch: {epoch+1}/{args.epochs}"

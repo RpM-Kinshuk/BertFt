@@ -125,11 +125,11 @@ parser.add_argument(
 args = parser.parse_args()
 
 # Set Cache Directory
-cache_dir = "/rscratch/tpang/kinshuk/cache"
+cache_dir = "/scratch/vipul/cache"
 
 # Memory Log Path
 mempath = (
-    f"/rscratch/tpang/kinshuk/RpMKin/bert_ft/GLUE/trainseed_{args.seed}"
+    f"/scratch/vipul/GLUE/trainseed_{args.seed}"
     + f"/task_{args.task_name}/{args.sortby}"  # _asc_{args.alpha_ascending}"
 )
 

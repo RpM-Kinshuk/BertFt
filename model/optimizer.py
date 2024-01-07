@@ -1,5 +1,5 @@
 import torch
-from params import getCustomParams
+from . import params
 
 # Optimizer
 def getOptim(args, model, vary_lyre=False, factor=1):  # Done
@@ -20,7 +20,7 @@ def getOptim(args, model, vary_lyre=False, factor=1):  # Done
         optimizer: An optimizer object
     """
     if vary_lyre:
-        new_params, pre_params = getCustomParams(model)
+        new_params, pre_params = params.getCustomParams(model)
         return torch.optim.AdamW(
             [
                 {"params": new_params, "lr": args.learning_rate * factor},

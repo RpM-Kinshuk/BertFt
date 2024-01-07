@@ -7,8 +7,8 @@ from transformers import (
     DataCollatorWithPadding,
     default_data_collator
 )
-from BertFt.model.getmodel import get_model
-from task_keys import task_keys
+from model import get_model
+from .task_keys import task_keys
 
 # Get GLUE Train and Eval Dataloaders
 def get_model_data(args, cache_dir=None, accelerator=None):
