@@ -1,0 +1,160 @@
+2024-01-06 22:16:42;INFO;
+
+mnli 0 Layers alpha ascending False
+2024-01-06 22:16:42;INFO;
+Memory usage before: 0 bytes
+Memory usage after: 444MB
+2024-01-06 22:16:42;INFO;
+Peak Memory usage: 808MB
+
+
+2024-01-06 22:27:51;INFO;
+
+mnli 1 Layers alpha ascending False
+2024-01-06 22:27:51;INFO;
+Memory usage before: 0 bytes
+Memory usage after: 451MB
+2024-01-06 22:27:51;INFO;
+Peak Memory usage: 815MB
+
+
+2024-01-06 22:33:24;INFO;
+
+mnli 2 Layers alpha ascending False
+2024-01-06 22:33:24;INFO;
+Memory usage before: 0 bytes
+Memory usage after: 459MB
+2024-01-06 22:33:24;INFO;
+Peak Memory usage: 824MB
+
+
+2024-01-06 22:46:43;INFO;
+
+mnli 3 Layers alpha ascending False
+2024-01-06 22:46:43;INFO;
+Memory usage before: 0 bytes
+Memory usage after: 465MB
+2024-01-06 22:46:43;INFO;
+Peak Memory usage: 1028MB
+
+
+2024-01-06 22:52:23;INFO;
+
+mnli 4 Layers alpha ascending False
+2024-01-06 22:52:23;INFO;
+Memory usage before: 0 bytes
+Memory usage after: 473MB
+2024-01-06 22:52:23;INFO;
+Peak Memory usage: 1045MB
+
+
+2024-01-06 22:57:06;INFO;
+
+mnli 5 Layers alpha ascending False
+2024-01-06 22:57:06;INFO;
+Memory usage before: 0 bytes
+Memory usage after: 482MB
+2024-01-06 22:57:06;INFO;
+Peak Memory usage: 1062MB
+
+
+2024-01-06 23:18:42;INFO;
+
+mnli 6 Layers alpha ascending False
+2024-01-06 23:18:42;INFO;
+Memory usage before: 0 bytes
+Memory usage after: 490MB
+2024-01-06 23:18:42;INFO;
+Peak Memory usage: 1727MB
+
+
+2024-01-06 23:19:27;INFO;
+
+mnli 8 Layers alpha ascending False
+2024-01-06 23:19:27;INFO;
+Memory usage before: 0 bytes
+Memory usage after: 504MB
+2024-01-06 23:19:27;INFO;
+Peak Memory usage: 1760MB
+
+
+2024-01-06 23:41:16;INFO;
+
+mnli 10 Layers alpha ascending False
+2024-01-06 23:41:16;INFO;
+Memory usage before: 0 bytes
+Memory usage after: 540MB
+2024-01-06 23:41:16;INFO;
+Peak Memory usage: 1840MB
+
+
+2024-01-06 23:57:03;INFO;
+
+mnli 12 Layers alpha ascending False
+2024-01-06 23:57:03;INFO;
+Memory usage before: 0 bytes
+Memory usage after: 555MB
+2024-01-06 23:57:03;INFO;
+Peak Memory usage: 2043MB
+
+
+2024-01-07 00:15:12;INFO;
+
+mnli 18 Layers alpha ascending False
+2024-01-07 00:15:12;INFO;
+Memory usage before: 0 bytes
+Memory usage after: 663MB
+2024-01-07 00:15:12;INFO;
+Peak Memory usage: 2631MB
+
+
+2024-01-07 00:41:42;INFO;
+
+mnli 24 Layers alpha ascending False
+2024-01-07 00:41:42;INFO;
+Memory usage before: 0 bytes
+Memory usage after: 770MB
+2024-01-07 00:41:42;INFO;
+Peak Memory usage: 3192MB
+
+
+2024-01-07 00:52:49;INFO;
+
+mnli 30 Layers alpha ascending False
+2024-01-07 00:52:49;INFO;
+Memory usage before: 0 bytes
+Memory usage after: 896MB
+2024-01-07 00:52:49;INFO;
+Peak Memory usage: 3363MB
+
+
+2024-01-07 01:04:07;INFO;
+
+mnli 36 Layers alpha ascending False
+2024-01-07 01:04:07;INFO;
+Memory usage before: 0 bytes
+Memory usage after: 1047MB
+2024-01-07 01:04:07;INFO;
+Peak Memory usage: 3596MB
+
+
+2024-01-07 01:44:44;INFO;
+
+mnli 72 Layers alpha ascending False
+2024-01-07 01:44:44;INFO;
+Memory usage before: 0 bytes
+Memory usage after: 1482MB
+2024-01-07 01:44:44;INFO;
+Peak Memory usage: 4251MB
+
+
+2024-01-07 01:45:52;INFO;
+
+mnli 74 Layers alpha ascending False
+2024-01-07 01:45:52;INFO;
+Memory usage before: 0 bytes
+Memory usage after: 1489MB
+2024-01-07 01:45:52;INFO;
+Peak Memory usage: 4257MB
+
+
